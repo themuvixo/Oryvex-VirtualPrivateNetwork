@@ -346,6 +346,10 @@ jobs:
   windows-legacy:
     name: Windows legacy (${{ matrix.arch }})
     runs-on: windows-latest
+    # BoringSSL's CMake try-compile tree exceeds Windows' legacy path limit
+    # under the default nested Cargo target directory. Keep native build paths short.
+    env:
+      CARGO_TARGET_DIR: 'D:\t'
     strategy:
       fail-fast: false
       matrix:
@@ -379,9 +383,10 @@ jobs:
         shell: bash
         run: |
           out=stage/OryvexVPN-windows-legacy-${{ matrix.arch }}
+          cargo_target_dir="$(cygpath -u "$CARGO_TARGET_DIR")"
           mkdir -p "$out/LICENSES"
-          cp oryvexcore/target/${{ matrix.target }}/release/oryvexcore.exe "$out/"
-          cp apps/desktop-lite-src/target/${{ matrix.target }}/release/OryvexVPNLite.exe "$out/"
+          cp "$cargo_target_dir/${{ matrix.target }}/release/oryvexcore.exe" "$out/"
+          cp "$cargo_target_dir/${{ matrix.target }}/release/OryvexVPNLite.exe" "$out/"
           cp oryvexcore/run-oryvexcore.bat "$out/"
           cp LICENSE "$out/LICENSES/oryvexcore-LICENSE.txt"
           (cd oryvexcore && python scripts/third-party-notices.py --target ${{ matrix.target }} --output "../$out/LICENSES/THIRD-PARTY-NOTICES.txt") \
