@@ -1,41 +1,48 @@
 import 'package:flutter/material.dart';
 
-/// OryvexVPN design tokens, after apple.com's dark product pages.
+/// OryvexVPN design tokens, after apple.com.
 ///
-/// A true-black canvas, #1D1D1F tiles with big soft corners, #F5F5F7 type set large and tight,
-/// Apple's #86868B for everything secondary, and one blue: #2997FF for links and "on", #0071E3
-/// for the filled call to action. Inter (the closest open face to SF Pro) for text, Inter Display
-/// for headlines, JetBrains Mono (closest to SF Mono) for addresses and logs. All three ship
-/// inside the app: nothing is fetched at runtime.
+/// apple.com's light canvas: #F5F5F7 behind everything, white tiles with big soft corners and
+/// barely-there shadows, #1D1D1F type set large and tight, #6E6E73 for everything secondary,
+/// and one blue, #0071E3, for links, "on" and the filled call to action. Inter (the closest
+/// open face to SF Pro) for text, Inter Display for headlines, JetBrains Mono (closest to SF
+/// Mono) for addresses and logs. All three ship inside the app: nothing is fetched at runtime.
 class Ox {
   Ox._();
 
   // Surfaces
   static const black = Color(0xFF000000);
-  static const nav = Color(0xB8161617); // frosted bar, over a blur
-  static const tile = Color(0xFF1D1D1F); // apple.com dark tile
-  static const tileHi = Color(0xFF2C2C2E);
-  static const tileTop = Color(0xFF3A3A3C); // segmented thumb, pressed rows
-  static const field = Color(0xFF1C1C1E);
-  static const hairline = Color(0xFF38383A);
-  static const hairlineSoft = Color(0xFF2A2A2C);
+  static const canvas = Color(0xFFF5F5F7); // apple.com's page grey
+  static const nav = Color(0xD9FBFBFD); // frosted bar, over a blur
+  static const tile = Color(0xFFFFFFFF); // apple.com tile
+  static const tileHi = Color(0xFFE8E8ED); // quiet buttons, hover
+  static const tileTop = Color(0xFFFFFFFF); // segmented thumb
+  static const field = Color(0xFFF0F0F3); // inputs, pill and segment tracks
+  static const hairline = Color(0xFFD2D2D7);
+  static const hairlineSoft = Color(0xFFE6E6EB);
 
   // Blue
-  static const blue = Color(0xFF2997FF); // apple.com link blue on dark: every "on"
+  static const blue = Color(0xFF0071E3); // apple.com blue: links and every "on"
   static const blueCta = Color(0xFF0071E3); // apple.com button blue
   static const blueCtaHi = Color(0xFF0077ED); // its hover
-  static const blueSoft = Color(0xFF6CB4FF);
+  static const blueSoft = Color(0xFF2997FF);
   static const blueDeep = Color(0xFF0040DD);
-  static const blueIce = Color(0xFFBFE0FF);
+  static const blueIce = Color(0xFF6CB4FF);
 
   // Type
-  static const text = Color(0xFFF5F5F7);
-  static const secondary = Color(0xFF86868B);
-  static const tertiary = Color(0xFF6E6E73);
+  static const text = Color(0xFF1D1D1F);
+  static const secondary = Color(0xFF6E6E73);
+  static const tertiary = Color(0xFF86868B);
 
   // States
-  static const danger = Color(0xFFFF453A);
-  static const warn = Color(0xFFFF9F0A);
+  static const danger = Color(0xFFE3342F);
+  static const warn = Color(0xFFC25E00);
+
+  /// The soft lift apple.com gives its tiles.
+  static const tileShadow = <BoxShadow>[
+    BoxShadow(color: Color(0x0F000000), blurRadius: 24, offset: Offset(0, 8)),
+    BoxShadow(color: Color(0x08000000), blurRadius: 3, offset: Offset(0, 1)),
+  ];
 
   // Fonts bundled by the oryvex_shared package (fonts/, SIL OFL 1.1). A font a package bundles
   // is only found under "packages/<package>/<family>".
@@ -51,7 +58,7 @@ class Ox {
   static const line = hairline;
   static const muted = secondary;
   static const faint = tertiary;
-  static const surface = Color(0xFF0A0A0B);
+  static const surface = Color(0xFFFFFFFF);
 
   // Geometry
   static const radiusTile = 28.0; // apple.com tiles
@@ -165,14 +172,14 @@ class OxPageTransitionsBuilder extends PageTransitionsBuilder {
 }
 
 ThemeData buildOxTheme() {
-  const scheme = ColorScheme.dark(
+  const scheme = ColorScheme.light(
     primary: Ox.blue,
     onPrimary: Colors.white,
     primaryContainer: Ox.blueCta,
     onPrimaryContainer: Colors.white,
     secondary: Ox.blueSoft,
-    onSecondary: Ox.black,
-    surface: Ox.black,
+    onSecondary: Colors.white,
+    surface: Ox.canvas,
     onSurface: Ox.text,
     surfaceContainerHighest: Ox.tileHi,
     outline: Ox.hairline,
@@ -190,16 +197,16 @@ ThemeData buildOxTheme() {
 
   final base = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: Brightness.light,
     colorScheme: scheme,
     fontFamily: Ox.sans,
     fontFamilyFallback: Ox.fallback,
-    scaffoldBackgroundColor: Ox.black,
-    canvasColor: Ox.black,
+    scaffoldBackgroundColor: Ox.canvas,
+    canvasColor: Ox.canvas,
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
     splashColor: Colors.transparent,
-    hoverColor: Colors.white.withValues(alpha: 0.04),
+    hoverColor: Colors.black.withValues(alpha: 0.04),
     focusColor: Ox.blue.withValues(alpha: 0.22),
     visualDensity: VisualDensity.standard,
     pageTransitionsTheme: transitions,
@@ -218,7 +225,7 @@ ThemeData buildOxTheme() {
       ),
       trackColor: WidgetStateProperty.resolveWith((s) {
         if (s.contains(WidgetState.disabled)) return Ox.tileHi;
-        return s.contains(WidgetState.selected) ? Ox.blueCta : const Color(0xFF39393D);
+        return s.contains(WidgetState.selected) ? const Color(0xFF34C759) : const Color(0xFFE9E9EB);
       }),
       trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       thumbIcon: const WidgetStatePropertyAll(null),
@@ -254,13 +261,13 @@ ThemeData buildOxTheme() {
       selectionHandleColor: Ox.blue,
     ),
     scrollbarTheme: ScrollbarThemeData(
-      thumbColor: WidgetStatePropertyAll(Colors.white.withValues(alpha: 0.22)),
+      thumbColor: WidgetStatePropertyAll(Colors.black.withValues(alpha: 0.22)),
       radius: const Radius.circular(8),
       thickness: const WidgetStatePropertyAll(6),
     ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
-        color: Ox.tileHi,
+        color: Ox.tile,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Ox.hairline),
       ),
@@ -268,7 +275,7 @@ ThemeData buildOxTheme() {
       waitDuration: const Duration(milliseconds: 500),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: Ox.tileHi,
+      backgroundColor: Ox.tile,
       contentTextStyle: Ox.body(15),
       behavior: SnackBarBehavior.floating,
       elevation: 0,
@@ -279,7 +286,7 @@ ThemeData buildOxTheme() {
       ),
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: Ox.tileHi,
+      color: Ox.tile,
       elevation: 8,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
@@ -288,7 +295,7 @@ ThemeData buildOxTheme() {
       textStyle: Ox.body(15),
     ),
     appBarTheme: AppBarTheme(
-      backgroundColor: Ox.black,
+      backgroundColor: Ox.canvas,
       foregroundColor: Ox.text,
       elevation: 0,
       scrolledUnderElevation: 0,

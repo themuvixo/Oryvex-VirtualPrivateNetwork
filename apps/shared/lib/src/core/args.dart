@@ -20,7 +20,10 @@ List<String> buildCoreArgs(
     // No tunnel: protocol, scan and carrier mean nothing, and Tor needs no WARP identity.
     args.add('--tor-only');
   } else {
-    args.addAll(['--protocol', s.protocol, '--scan', s.scan]);
+    // auto and sstp are the app's own choices: the controller swaps in the protocol each Auto
+    // attempt uses, and SSTP never starts the core. WireGuard is the safe answer if one slips by.
+    final protocol = Choices.autoOrder.contains(s.protocol) ? s.protocol : Choices.autoOrder.first;
+    args.addAll(['--protocol', protocol, '--scan', s.scan]);
     switch (s.ip) {
       case 'v6':
         args.add('-6');
@@ -29,7 +32,7 @@ List<String> buildCoreArgs(
       default:
         args.add('-4');
     }
-    if (usesMasqueCarrier(s.protocol)) {
+    if (usesMasqueCarrier(protocol)) {
       args.add(s.transport == 'h2' ? '--h2' : '--h3');
     }
     if (s.fragment) args.add('--fragment');

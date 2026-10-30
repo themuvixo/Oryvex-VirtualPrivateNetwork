@@ -5,7 +5,7 @@ import '../theme.dart';
 
 /// The app's name, in one place.
 const kAppName = 'OryvexVPN';
-const kAppVersion = '2.5.0';
+const kAppVersion = '1.0.0';
 const kCreator = 'Muvixo';
 
 /// The OryvexVPN mark (orbit ring + core slipping out through its gap), from assets/logo-mark.svg.

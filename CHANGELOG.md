@@ -1,3 +1,30 @@
+# OryvexVPN 1.0.0 (Created by Muvixo)
+
+## Added
+- **Auto connect (new default).** Tries WireGuard first, then MASQUE, then MASQUE², then Gool,
+  and keeps the first one that connects. Each gets 30 / 40 / 50 / 60 s (twice that with the
+  Thorough or Ironclad scan) before Auto moves on; a core that exits or finds no gateway moves
+  on at once. Settings saved with the old MASQUE default switch to Auto once.
+- **SSTP via VPN Gate (Windows).** A new SSTP route dials free VPN Gate relays with Windows'
+  built-in SSTP client (user and password `vpn`). 33 SSTP servers taken from vpngate.net/en/
+  ship in `apps/shared/lib/src/core/sstp_servers.dart`; the app re-reads vpngate.net when the
+  saved list is older than 6 hours (or on "Refresh list") and falls back on the saved or
+  bundled list when the page is out of reach. Pick a server or let it try the best six.
+- **Your IP and country** at the top of the Connect page, looked up through the tunnel once
+  connected (Cloudflare trace, ip-api.com as a fallback). Tap it to check again.
+
+## Fixed
+- **Download / upload speeds.** The core now prints exact byte counts on its stats line, so the
+  speed tiles no longer jump between 0 and spikes when the rounded totals reach MiB / GiB; rates
+  use the core's own timestamps; UDP traffic (QUIC, DNS) is counted; the tiles drop to zero
+  after disconnecting instead of freezing on the last value.
+- Release build: `third-party-notices.py` found no Cargo.toml by default.
+
+## Changed
+- Light apple.com design: #F5F5F7 canvas, white tiles with soft shadows, #1D1D1F type, Apple
+  blue, light frosted bars, green switches, a white glass orb that turns blue when connected.
+- The licenses page is gone from the app.
+
 # OryvexVPN 2.5.0 (Created by Muvixo)
 
 ## Fixed

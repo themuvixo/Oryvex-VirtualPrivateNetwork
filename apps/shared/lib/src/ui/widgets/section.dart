@@ -36,7 +36,7 @@ class PageTitle extends StatelessWidget {
   }
 }
 
-/// A rounded tile on the black canvas: apple.com's product tile.
+/// A rounded white tile on the grey canvas: apple.com's product tile.
 class OxTile extends StatelessWidget {
   const OxTile({super.key, required this.child, this.padding = const EdgeInsets.all(20), this.color = Ox.tile});
 
@@ -48,7 +48,11 @@ class OxTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: padding,
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(Ox.radiusTile)),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(Ox.radiusTile),
+        boxShadow: color == Ox.tile ? Ox.tileShadow : null,
+      ),
       child: child,
     );
   }
@@ -90,7 +94,12 @@ class OxSection extends StatelessWidget {
               ],
             ),
           ),
-          ClipRRect(
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Ox.radiusGroup),
+              boxShadow: Ox.tileShadow,
+            ),
+            child: ClipRRect(
             borderRadius: BorderRadius.circular(Ox.radiusGroup),
             child: ColoredBox(
               color: Ox.tile,
@@ -100,6 +109,7 @@ class OxSection extends StatelessWidget {
                 alignment: Alignment.topCenter,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
               ),
+            ),
             ),
           ),
           if (footer != null)
@@ -190,7 +200,7 @@ class Segmented extends StatelessWidget {
                     color: Ox.tileTop,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 6, offset: const Offset(0, 2)),
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 6, offset: const Offset(0, 2)),
                     ],
                   ),
                 ),

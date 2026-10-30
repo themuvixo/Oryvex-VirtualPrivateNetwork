@@ -1582,7 +1582,9 @@ async fn handle_udp_associate(
                                 }
                                 Some(addr) => {
                                     log::trace!("[route] direct udp {dst}:{dst_port}");
-                                    let _ = direct_relay.send_to(&payload.1, addr).await;
+                                    if direct_relay.send_to(&payload.1, addr).await.is_ok() {
+                                        crate::stats::add_up(payload.1.len());
+                                    }
                                 }
                                 None => log::debug!("[route] direct udp {dst} did not resolve"),
                             }
@@ -1600,12 +1602,16 @@ async fn handle_udp_associate(
                             }
                         }
                     };
+                    // UDP (QUIC, DNS, games) counts toward the traffic totals like TCP does.
+                    let sent = payload.1.len();
                     let _ = sender.send_to(dst, payload.1).await;
+                    crate::stats::add_up(sent);
                 }
             }
 
             maybe = from_stack.recv() => {
                 let (src, data) = match maybe { Some(v) => v, None => break };
+                crate::stats::add_down(data.len());
                 if let Some(c) = client {
                     let pkt = build_udp_reply(src, &data);
                     let _ = relay.send_to(&pkt, c).await;
@@ -1614,6 +1620,7 @@ async fn handle_udp_associate(
 
             r = direct_relay.recv_from(&mut dbuf) => {
                 let (n, from) = match r { Ok(v) => v, Err(_) => continue };
+                crate::stats::add_down(n);
                 if let Some(c) = client {
                     let pkt = build_udp_reply(from, &dbuf[..n]);
                     let _ = relay.send_to(&pkt, c).await;

@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
 import 'backend.dart';
 import 'errors.dart';
+import 'ip_info.dart';
 import 'log_line.dart';
 import 'ports.dart';
 import 'settings.dart';
+import 'sstp.dart';
+import 'sstp_servers.dart';
 import 'steps.dart';
+import 'vpngate.dart';
 import 'win_proxy.dart';
 
 enum CoreState { stopped, starting, connecting, connected, reconnecting, stopping }
@@ -91,7 +96,41 @@ class CoreController extends ChangeNotifier {
   bool _cancelRequested = false;
   bool _disposed = false;
 
-  static final _stats = RegExp(r'\[=\] up (.+?) down (.+?) uptime (.+)$');
+  // --- Auto ---------------------------------------------------------------------------------
+
+  /// The protocol the running (or last) attempt uses. In Auto it changes as Auto moves on.
+  String? activeProtocol;
+
+  /// Which entry of [Choices.autoOrder] Auto is on.
+  int autoIndex = 0;
+  Timer? _attemptTimer;
+  bool _switching = false;
+
+  // --- SSTP (Windows) -----------------------------------------------------------------------
+
+  /// The VPN Gate servers SSTP can dial: the bundled list until a refresh replaces it.
+  List<SstpServer> sstpServers = bundledSstpServers;
+
+  /// When [sstpServers] was fetched from vpngate.net; null for the bundled list.
+  DateTime? sstpUpdatedAt;
+  bool sstpRefreshing = false;
+
+  /// The server the current SSTP session is connected to.
+  SstpServer? sstpConnected;
+  Timer? _sstpPoll;
+  int _sstpMisses = 0;
+
+  // --- Public address -------------------------------------------------------------------------
+
+  /// The address and country the internet sees right now (null until the first lookup).
+  IpInfo? ipInfo;
+  bool ipLoading = false;
+  int _ipSeq = 0;
+
+  // "[=] up 1.2 MiB down 8.4 MiB uptime 00:03:02 bytes 1258291 8808038". Cores before 2.5
+  // print no exact byte counts; the rounded totals are used then.
+  static final _stats = RegExp(
+      r'\[=\] up (.+?) down (.+?) uptime ((?:\d+d )?\d+:\d{2}:\d{2})(?: bytes (\d+) (\d+))?\s*$');
   static final _edgePatterns = <RegExp>[
     RegExp(r'using cloudflare edge (\S+)'),
     RegExp(r'selected WireGuard endpoint (\S+)'),
@@ -102,6 +141,23 @@ class CoreController extends ChangeNotifier {
   ];
 
   bool get isActive => state != CoreState.stopped;
+
+  /// SSTP rides Windows' own VPN client, so only the Windows app offers it.
+  bool get supportsSstp => !backend.isAndroid && SstpClient.supported;
+
+  /// Auto is picking the protocol for this connection.
+  bool get isAuto => settings.protocol == 'auto' && !settings.torOnly;
+
+  bool get _sstpMode => settings.protocol == 'sstp' && !settings.torOnly && supportsSstp;
+
+  /// The protocol to show: the one in use, or the one that will be tried first.
+  String get routeProtocol => activeProtocol ?? (isAuto ? Choices.autoOrder.first : settings.protocol);
+
+  /// "2 of 4" while Auto is working through its list.
+  String? get autoStepLabel =>
+      isAuto && activeProtocol != null && state != CoreState.stopped
+          ? '${autoIndex + 1} of ${Choices.autoOrder.length}'
+          : null;
 
   /// hh:mm:ss since the tunnel came up, ticking locally between the core's stats lines.
   String get uptime {
@@ -119,7 +175,16 @@ class CoreController extends ChangeNotifier {
 
   Future<void> init() async {
     settings = await CoreSettings.load();
+    if (settings.protocol == 'sstp' && !supportsSstp) settings.protocol = 'auto';
     plan = ConnectionPlan.of(settings, android: backend.isAndroid);
+    if (supportsSstp) {
+      final (servers, at) = await VpnGateDirectory.load();
+      sstpServers = servers;
+      sstpUpdatedAt = at;
+      // An SSTP session the app can no longer see (it was closed while connected) is hung up,
+      // so the switch and Windows never disagree.
+      unawaited(SstpClient.disconnect());
+    }
     if (Platform.isWindows) {
       // A crash while the system proxy pointed at us must not leave the user offline.
       WinProxy.restore();
@@ -138,6 +203,7 @@ class CoreController extends ChangeNotifier {
       plan.vpn(vpnUp);
     }
     _notify();
+    unawaited(refreshIp());
   }
 
   Future<void> toggle() async {
@@ -153,40 +219,63 @@ class CoreController extends ChangeNotifier {
 
   Future<void> start() async {
     if (state != CoreState.stopped || _busy) return;
-    final problem = settings.problem(android: backend.isAndroid);
+    final problem = _sstpMode ? null : settings.problem(android: backend.isAndroid);
     if (problem != null) {
       lastError = problem;
       _notify();
       return;
     }
 
-    _busy = true;
     _cancelRequested = false;
-    final run = DateTime.now().millisecondsSinceEpoch;
-    _run = run;
     lastError = null;
-    edge = null;
     up = '0 B';
     down = '0 B';
-    coreUptime = null;
-    connectedAt = null;
-    vpnUp = false;
     settingsDirty = false;
     downRate.clear();
     upRate.clear();
     rateTick++;
+    autoIndex = 0;
+
+    if (_sstpMode) {
+      await _startSstp();
+      return;
+    }
+    if (isAuto) {
+      _gui('[gui] auto: will try ${Choices.autoOrder.map(Choices.protocolLong).join(', then ')}');
+    }
+    await _launch();
+  }
+
+  /// The settings one attempt runs with: Auto's current protocol in place of "auto".
+  CoreSettings _attemptSettings() {
+    final s = settings.copy();
+    if (isAuto) s.protocol = Choices.autoOrder[autoIndex];
+    return s;
+  }
+
+  /// Starts one core session with [_attemptSettings].
+  Future<void> _launch() async {
+    _busy = true;
+    final run = math.max(DateTime.now().millisecondsSinceEpoch, _run + 1);
+    _run = run;
+    final attempt = _attemptSettings();
+    activeProtocol = settings.torOnly ? null : attempt.protocol;
+    edge = null;
+    coreUptime = null;
+    connectedAt = null;
+    vpnUp = false;
     _lastUpBytes = null;
     _lastDownBytes = null;
     _lastStatsAt = null;
-    plan = ConnectionPlan.of(settings, android: backend.isAndroid)..begin();
+    plan = ConnectionPlan.of(attempt, android: backend.isAndroid)..begin();
     state = CoreState.starting;
     _notify();
 
     try {
       // An earlier core may still be letting go of its ports: give it a moment, then say so.
       final busy = await waitForPorts(
-        settings.portsInUse(android: backend.isAndroid),
-        shareLan: settings.shareLan,
+        attempt.portsInUse(android: backend.isAndroid),
+        shareLan: attempt.shareLan,
       );
       if (_cancelRequested) {
         _finishCancelled(run);
@@ -197,7 +286,11 @@ class CoreController extends ChangeNotifier {
             '${busy.join(' and ')} ${busy.length == 1 ? 'is' : 'are'} already in use by another app. '
             'Close it, or pick another port in Settings.');
       }
-      await backend.start(settings.copy(), run);
+      if (isAuto) {
+        _gui('[gui] auto: trying ${Choices.protocolLong(attempt.protocol)} '
+            '(${autoIndex + 1} of ${Choices.autoOrder.length})');
+      }
+      await backend.start(attempt, run);
       if (_run != run) return;
       if (_cancelRequested) {
         await backend.stop();
@@ -205,6 +298,7 @@ class CoreController extends ChangeNotifier {
         return;
       }
       if (state == CoreState.starting) state = CoreState.connecting;
+      _armAttempt(run);
     } on BackendException catch (e) {
       _failStart(run, e.message);
     } catch (e) {
@@ -215,25 +309,97 @@ class CoreController extends ChangeNotifier {
     }
   }
 
+  /// Gives an Auto attempt its time to come up; past it, Auto moves on to the next protocol.
+  void _armAttempt(int run) {
+    _attemptTimer?.cancel();
+    _attemptTimer = null;
+    if (!isAuto || state == CoreState.connected) return;
+    final secs = Choices.autoTimeout(activeProtocol ?? Choices.autoOrder.first, settings.scan);
+    _attemptTimer = Timer(Duration(seconds: secs), () {
+      _attemptTimer = null;
+      if (_run != run) return;
+      if (state == CoreState.connecting) {
+        unawaited(_failover(run, 'nothing after $secs s'));
+      }
+    });
+  }
+
+  /// Auto: drops the attempt of [run] and starts the next protocol, or gives up after Gool.
+  Future<void> _failover(int run, String why) async {
+    if (_run != run || _switching || !isAuto || _cancelRequested) return;
+    if (state == CoreState.stopping || state == CoreState.stopped || state == CoreState.connected) return;
+    _switching = true;
+    _attemptTimer?.cancel();
+    _attemptTimer = null;
+    final from = Choices.protocolLong(activeProtocol ?? '');
+    final last = autoIndex + 1 >= Choices.autoOrder.length;
+    // Whatever the dropped session still says no longer counts.
+    _run = run + 1;
+    state = last ? CoreState.stopping : CoreState.starting;
+    _notify();
+    try {
+      await backend.stop();
+    } catch (_) {}
+    _switching = false;
+
+    if (last) {
+      _markStopped();
+      lastError = 'Auto tried WireGuard, MASQUE, MASQUE² and Gool, and none of them connected. '
+          'Try the Thorough scan, HTTP/2${supportsSstp ? ', or SSTP' : ''}.';
+      _gui('[gui] auto: $from did not connect either ($why); giving up');
+      _notify();
+      unawaited(refreshIp());
+      return;
+    }
+    if (_cancelRequested) {
+      _cancelRequested = false;
+      _markStopped();
+      _gui('[gui] cancelled');
+      _notify();
+      return;
+    }
+    autoIndex++;
+    lastError = null;
+    _gui('[gui] auto: $from did not connect ($why), moving on to '
+        '${Choices.protocolLong(Choices.autoOrder[autoIndex])}');
+    await _launch();
+  }
+
   void _failStart(int run, String message) {
     if (_run != run) return;
+    _markStopped();
     lastError = message;
-    state = CoreState.stopped;
-    plan.reset();
     _gui('[gui] could not connect: $message');
   }
 
   void _finishCancelled(int run) {
     if (_run != run) return;
-    state = CoreState.stopped;
-    plan.reset();
+    _markStopped();
+    _cancelRequested = false;
     _gui('[gui] cancelled');
+    unawaited(refreshIp());
   }
 
   Future<void> stop() async {
     if (state == CoreState.stopped || state == CoreState.stopping) return;
+    if (activeProtocol == 'sstp') {
+      // Hanging up also ends a dial that is still in progress.
+      _cancelRequested = true;
+      state = CoreState.stopping;
+      _notify();
+      _sstpPoll?.cancel();
+      _sstpPoll = null;
+      await SstpClient.disconnect();
+      if (!_busy && state == CoreState.stopping) {
+        _markStopped();
+        _gui('[gui] sstp: disconnected');
+        unawaited(refreshIp());
+      }
+      _notify();
+      return;
+    }
     if (state == CoreState.starting) {
-      // start() is still in flight; it sees this and winds down on its own.
+      // start() (or an Auto switch) is still in flight; it sees this and winds down on its own.
       _cancelRequested = true;
       state = CoreState.stopping;
       _notify();
@@ -247,12 +413,23 @@ class CoreController extends ChangeNotifier {
     } catch (_) {}
     if (_run == run && state == CoreState.stopping) _markStopped();
     _notify();
+    unawaited(refreshIp());
   }
 
   void _markStopped() {
     state = CoreState.stopped;
     vpnUp = false;
     connectedAt = null;
+    activeProtocol = null;
+    sstpConnected = null;
+    _attemptTimer?.cancel();
+    _attemptTimer = null;
+    _sstpPoll?.cancel();
+    _sstpPoll = null;
+    // The speed tiles fall back to zero instead of freezing on the last sample.
+    downRate.clear();
+    upRate.clear();
+    rateTick++;
     plan.reset();
   }
 
@@ -290,7 +467,12 @@ class CoreController extends ChangeNotifier {
       case LineEvent(:final line):
         _ingest(line);
       case ExitEvent(:final code):
-        if (state == CoreState.stopped) break;
+        if (state == CoreState.stopped || activeProtocol == 'sstp') break;
+        if (isAuto && !_switching && state == CoreState.connecting) {
+          // The attempt died before it connected: Auto moves on instead of stopping.
+          unawaited(_failover(_run, code != null && code != 0 ? 'the core exited with code $code' : 'the core exited'));
+          break;
+        }
         final wasStopping = state == CoreState.stopping;
         _markStopped();
         if (!wasStopping && lastError == null) {
@@ -325,9 +507,28 @@ class CoreController extends ChangeNotifier {
           (state == CoreState.connecting ||
               state == CoreState.reconnecting ||
               state == CoreState.starting)) {
+        final first = connectedAt == null;
         state = CoreState.connected;
         connectedAt ??= DateTime.now();
         lastError = null;
+        _attemptTimer?.cancel();
+        _attemptTimer = null;
+        if (first) {
+          if (isAuto && activeProtocol != null) {
+            _gui('[gui] auto: connected with ${Choices.protocolLong(activeProtocol!)}');
+          }
+          // Give the tunnel a moment to carry traffic, then ask who we look like now.
+          final run = _run;
+          Timer(const Duration(milliseconds: 1500), () {
+            if (_run == run && state == CoreState.connected) unawaited(refreshIp());
+          });
+        }
+      }
+    }
+    if (isAuto && state == CoreState.connecting && !_switching) {
+      final lower = msg.toLowerCase();
+      if (lower.contains('no clean endpoint') || lower.contains('scan deadline')) {
+        unawaited(_failover(_run, 'no gateway answered'));
       }
     }
     if (msg.contains('reconnecting') && state == CoreState.connected) {
@@ -339,7 +540,10 @@ class CoreController extends ChangeNotifier {
       up = s.group(1)!;
       down = s.group(2)!;
       coreUptime = s.group(3)!.trim();
-      _sampleRates(up, down);
+      final exactUp = double.tryParse(s.group(4) ?? '');
+      final exactDown = double.tryParse(s.group(5) ?? '');
+      // The core's own timestamp, not when the line got here: pipes deliver lines in bursts.
+      _sampleBytes(exactUp ?? parseBytes(up), exactDown ?? parseBytes(down), line.time);
     }
     for (final p in _edgePatterns) {
       final m = p.firstMatch(msg);
@@ -348,7 +552,11 @@ class CoreController extends ChangeNotifier {
         break;
       }
     }
-    if (line.level == LogLevel.error && state != CoreState.connected && state != CoreState.stopping) {
+    if (line.level == LogLevel.error &&
+        state != CoreState.connected &&
+        state != CoreState.stopping &&
+        !isAuto) {
+      // In Auto an attempt's errors are Auto's business: it moves on, and says so if all fail.
       lastError = friendlyError(msg);
     }
     _scheduleNotify();
@@ -364,15 +572,13 @@ class CoreController extends ChangeNotifier {
     return v * (mult[key] ?? 1);
   }
 
-  void _sampleRates(String upText, String downText) {
-    final u = parseBytes(upText);
-    final d = parseBytes(downText);
-    final now = DateTime.now();
+  void _sampleBytes(double? u, double? d, DateTime now) {
     if (u == null || d == null) return;
     final lastAt = _lastStatsAt;
     if (lastAt != null && _lastUpBytes != null && _lastDownBytes != null) {
       final dt = now.difference(lastAt).inMilliseconds / 1000.0;
-      if (dt > 0.2) {
+      if (dt < 0.2) return; // Same second (a replayed backlog): wait for a real interval.
+      {
         double rate(double now, double before) => now >= before ? (now - before) / dt : 0;
         downRate.add(rate(d, _lastDownBytes!));
         upRate.add(rate(u, _lastUpBytes!));
@@ -423,7 +629,186 @@ class CoreController extends ChangeNotifier {
   }
 
   Future<void> shutdown() async {
+    if (activeProtocol == 'sstp') await SstpClient.disconnect();
     await backend.shutdown();
+  }
+
+  // --- SSTP ---------------------------------------------------------------------------------
+
+  /// The servers SSTP tries, in order: the chosen one first, then the best by VPN Gate's score
+  /// that report some throughput.
+  List<SstpServer> _sstpCandidates() {
+    final ranked = List<SstpServer>.of(sstpServers)
+      ..sort((a, b) {
+        final live = (b.mbps > 0 ? 1 : 0).compareTo(a.mbps > 0 ? 1 : 0);
+        return live != 0 ? live : b.score.compareTo(a.score);
+      });
+    final chosen = settings.sstpServer.trim();
+    if (chosen.isEmpty) return ranked;
+    final pick = ranked.where((x) => x.address == chosen).toList();
+    if (pick.isEmpty) {
+      // A server typed in by hand, or one a refresh no longer lists: try it first anyway.
+      final parts = chosen.split(':');
+      final port = parts.length > 1 ? int.tryParse(parts[1]) : null;
+      pick.add(SstpServer(host: parts.first, port: port ?? 443));
+    }
+    return [...pick, ...ranked.where((x) => x.address != chosen)];
+  }
+
+  /// Fetches a fresh server list from vpngate.net. With [quiet], failures are only logged.
+  Future<bool> refreshSstpServers({bool quiet = false}) async {
+    if (!supportsSstp || sstpRefreshing) return false;
+    sstpRefreshing = true;
+    _notify();
+    try {
+      final fresh = await VpnGateDirectory.refresh();
+      sstpServers = fresh;
+      sstpUpdatedAt = DateTime.now();
+      _gui('[gui] sstp: list ready, ${fresh.length} servers from vpngate.net');
+      return true;
+    } catch (e) {
+      _gui('[gui] sstp: could not refresh the server list ($e); using the saved one');
+      if (!quiet) lastError = 'Could not reach vpngate.net to refresh the SSTP servers. The saved list still works.';
+      return false;
+    } finally {
+      sstpRefreshing = false;
+      _notify();
+    }
+  }
+
+  Future<void> _startSstp() async {
+    _busy = true;
+    final run = math.max(DateTime.now().millisecondsSinceEpoch, _run + 1);
+    _run = run;
+    activeProtocol = 'sstp';
+    edge = null;
+    coreUptime = null;
+    connectedAt = null;
+    vpnUp = false;
+    sstpConnected = null;
+    _lastUpBytes = null;
+    _lastDownBytes = null;
+    _lastStatsAt = null;
+    plan = ConnectionPlan.of(settings, android: false)..begin();
+    state = CoreState.starting;
+    _notify();
+
+    try {
+      final at = sstpUpdatedAt;
+      if (at == null || DateTime.now().difference(at) > VpnGateDirectory.maxAge) {
+        _gui('[gui] sstp: refreshing the server list from vpngate.net');
+        await refreshSstpServers(quiet: true);
+        if (_cancelRequested || _run != run) {
+          _finishCancelled(run);
+          return;
+        }
+      } else {
+        _gui('[gui] sstp: list ready, ${sstpServers.length} saved servers');
+      }
+      state = CoreState.connecting;
+      _notify();
+
+      const tries = 6;
+      final candidates = _sstpCandidates().take(tries).toList();
+      for (final server in candidates) {
+        if (_cancelRequested || _run != run) break;
+        _gui('[gui] sstp: dialing ${server.address} (${server.country.isEmpty ? 'VPN Gate' : server.country})');
+        final error = await SstpClient.connect(server);
+        if (_cancelRequested || _run != run) break;
+        if (error == null) {
+          sstpConnected = server;
+          edge = server.address;
+          state = CoreState.connected;
+          connectedAt = DateTime.now();
+          lastError = null;
+          plan.completeAll(readyDetail: server.label);
+          _gui('[gui] sstp: connected to ${server.address}');
+          _startSstpPoll(run);
+          Timer(const Duration(milliseconds: 1500), () {
+            if (_run == run && state == CoreState.connected) unawaited(refreshIp());
+          });
+          return;
+        }
+        _gui('[gui] sstp: ${server.address} did not connect: $error');
+      }
+      if (_cancelRequested || _run != run) {
+        await SstpClient.disconnect();
+        _finishCancelled(run);
+        return;
+      }
+      throw BackendException('None of the $tries best SSTP servers answered. '
+          'Refresh the server list in Settings, or pick another server.');
+    } on BackendException catch (e) {
+      _failStart(run, e.message);
+    } catch (e) {
+      _failStart(run, friendlyError('$e'));
+    } finally {
+      _busy = false;
+      _notify();
+    }
+  }
+
+  /// While SSTP is up: the adapter's byte counters every two seconds, and a check that
+  /// Windows still has the connection.
+  void _startSstpPoll(int run) {
+    _sstpPoll?.cancel();
+    _sstpMisses = 0;
+    var polling = false;
+    _sstpPoll = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (polling || _run != run || state != CoreState.connected) return;
+      polling = true;
+      try {
+        final counters = await SstpClient.counters();
+        if (_run != run || state != CoreState.connected) return;
+        if (counters == null) {
+          _sstpMisses++;
+          if (_sstpMisses >= 3 && !await SstpClient.isConnected()) {
+            if (_run != run || state != CoreState.connected) return;
+            _markStopped();
+            lastError = 'The SSTP connection dropped. Connect again to pick another server.';
+            _gui('[gui] sstp: the connection dropped');
+            unawaited(refreshIp());
+            _notify();
+          }
+          return;
+        }
+        _sstpMisses = 0;
+        down = _formatBytes(counters.down);
+        up = _formatBytes(counters.up);
+        _sampleBytes(counters.up.toDouble(), counters.down.toDouble(), DateTime.now());
+        _notify();
+      } finally {
+        polling = false;
+      }
+    });
+  }
+
+  static String _formatBytes(int bytes) {
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    var v = bytes.toDouble();
+    var u = 0;
+    while (v >= 1024 && u < units.length - 1) {
+      v /= 1024;
+      u++;
+    }
+    return u == 0 ? '$bytes B' : '${v.toStringAsFixed(1)} ${units[u]}';
+  }
+
+  // --- Public address -------------------------------------------------------------------------
+
+  /// Looks up the address and country the internet sees. Through the core's SOCKS5 port while
+  /// a core tunnel is up (the app itself bypasses its own VPN), directly otherwise.
+  Future<void> refreshIp() async {
+    if (_disposed) return;
+    final seq = ++_ipSeq;
+    ipLoading = true;
+    _notify();
+    final viaCore = state == CoreState.connected && activeProtocol != 'sstp';
+    final info = await IpLookup.lookup(socksPort: viaCore ? settings.socksPort : null);
+    if (_disposed || seq != _ipSeq) return;
+    ipLoading = false;
+    if (info != null) ipInfo = info;
+    _notify();
   }
 
   @override

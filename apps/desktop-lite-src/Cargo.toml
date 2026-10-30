@@ -1,6 +1,6 @@
 [package]
 name = "oryvexcore-lite"
-version = "2.4.0"
+version = "1.0.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "OryvexVPN Lite: a tiny native Win32 GUI for the OryvexCore core, for Windows 7/8/10/11, 32- and 64-bit."

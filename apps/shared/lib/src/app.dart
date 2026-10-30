@@ -23,11 +23,11 @@ Future<void> runOryvex(CoreBackend backend) async {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
       systemNavigationBarColor: Colors.transparent,
       systemNavigationBarDividerColor: Colors.transparent,
-      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarIconBrightness: Brightness.dark,
       systemNavigationBarContrastEnforced: false,
     ));
   }
@@ -74,7 +74,7 @@ class _OryvexAppState extends State<OryvexApp> {
       debugShowCheckedModeBanner: false,
       theme: buildOxTheme(),
       darkTheme: buildOxTheme(),
-      themeMode: ThemeMode.dark,
+      themeMode: ThemeMode.light,
       home: Shell(controller: widget.controller),
     );
   }
@@ -144,7 +144,7 @@ class _ShellState extends State<Shell> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          backgroundColor: Ox.black,
+          backgroundColor: Ox.canvas,
           body: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
             duration: const Duration(milliseconds: 700),
@@ -256,7 +256,7 @@ class _TopNav extends StatelessWidget {
                     width: tabW,
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.10),
+                        color: Colors.black.withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(99),
                       ),
                     ),
@@ -326,7 +326,7 @@ class _TabBar extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(32),
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 24, offset: const Offset(0, 8)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 28, offset: const Offset(0, 10)),
               ],
             ),
             child: _Glass(
@@ -337,7 +337,7 @@ class _TabBar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Ox.nav,
                   borderRadius: BorderRadius.circular(32),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.8),
+                  border: Border.all(color: Colors.black.withValues(alpha: 0.06), width: 0.8),
                 ),
                 child: LayoutBuilder(
                   builder: (context, box) {
@@ -353,7 +353,7 @@ class _TabBar extends StatelessWidget {
                           width: seg,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.10),
+                              color: Colors.black.withValues(alpha: 0.06),
                               borderRadius: BorderRadius.circular(26),
                             ),
                           ),

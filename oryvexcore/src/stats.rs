@@ -104,11 +104,15 @@ pub fn spawn_reporter() {
         loop {
             tokio::time::sleep(every).await;
             let counters = snapshot();
+            // The exact byte counts come last so the GUI can work out live speeds: the rounded
+            // totals move in 0.1 MiB / GiB steps, too coarse for a two-second sample.
             log::info!(
-                "[=] up {} down {} uptime {}",
+                "[=] up {} down {} uptime {} bytes {} {}",
                 format_bytes(counters.up),
                 format_bytes(counters.down),
-                format_uptime(counters.uptime)
+                format_uptime(counters.uptime),
+                counters.up,
+                counters.down
             );
         }
     });

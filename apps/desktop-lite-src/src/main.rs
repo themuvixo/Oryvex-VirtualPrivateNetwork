@@ -552,6 +552,9 @@ mod app {
         } else if let Some(i) = raw.find("[=] up ") {
             // "[=] up 1.2 MB down 8.4 MB uptime 3m 2s"
             let stats = &raw[i + 4..];
+            // Newer cores append the exact byte counts ("... bytes 123 456"); the status line
+            // keeps the rounded totals only.
+            let stats = stats.split(" bytes ").next().unwrap_or(stats);
             set_status(&format!("Connected · {stats}"));
         }
         append_log(&shown);

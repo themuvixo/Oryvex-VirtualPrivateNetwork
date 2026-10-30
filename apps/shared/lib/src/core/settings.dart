@@ -6,8 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CoreSettings {
   CoreSettings();
 
-  /// masque | wg | gool | mim
-  String protocol = 'masque';
+  /// auto | wg | masque | mim | gool | sstp.
+  ///
+  /// auto tries WireGuard, then MASQUE, then MASQUE², then Gool, and keeps the first one that
+  /// connects. sstp (Windows) dials a VPN Gate server with Windows' own SSTP client.
+  String protocol = 'auto';
+
+  /// The VPN Gate server SSTP dials (its address, host or host:port). Empty: the best one.
+  String sstpServer = '';
 
   /// h3 | h2. Only the MASQUE carriers (masque, gool, mim) read it.
   String transport = 'h3';
@@ -60,10 +66,16 @@ class CoreSettings {
 
   static const _key = 'oryvexcore.settings.v1';
 
+  /// Bumped when the default protocol changed. Settings saved before 2 kept MASQUE only because
+  /// it used to be the default, so they move to Auto once.
+  static const _protocolVersion = 2;
+
   bool get torOnly => chain == 'tor-only';
 
   Map<String, dynamic> toJson() => {
         'protocol': protocol,
+        'protocolVersion': _protocolVersion,
+        'sstpServer': sstpServer,
         'transport': transport,
         'scan': scan,
         'noize': noize,
@@ -104,6 +116,8 @@ class CoreSettings {
     }
 
     s.protocol = str('protocol', s.protocol, Choices.protocols);
+    if (j['protocolVersion'] != _protocolVersion && s.protocol == 'masque') s.protocol = 'auto';
+    s.sstpServer = str('sstpServer', s.sstpServer);
     s.transport = str('transport', s.transport, Choices.transports);
     s.scan = str('scan', s.scan, Choices.scans);
     s.noize = str('noize', s.noize, Choices.noizes);
@@ -198,17 +212,41 @@ class Choices {
   Choices._();
 
   static const protocols = <String, String>{
-    'masque': 'MASQUE',
+    'auto': 'Auto',
     'wg': 'WireGuard',
-    'gool': 'Gool',
+    'masque': 'MASQUE',
     'mim': 'MASQUE²',
+    'gool': 'Gool',
+    'sstp': 'SSTP',
   };
 
+  /// The protocols this platform offers: SSTP needs Windows' built-in SSTP client.
+  static Map<String, String> protocolsFor({required bool sstp}) =>
+      sstp ? protocols : {for (final e in protocols.entries) if (e.key != 'sstp') e.key: e.value};
+
+  /// What Auto tries, in order. The first one that connects wins.
+  static const autoOrder = <String>['wg', 'masque', 'mim', 'gool'];
+
+  /// How long Auto gives [protocol] to come up before it moves on, in seconds. The deep scans
+  /// sweep whole ranges, so they get twice as long.
+  static int autoTimeout(String protocol, String scan) {
+    final base = switch (protocol) {
+      'wg' => 30,
+      'masque' => 40,
+      'mim' => 50,
+      _ => 60,
+    };
+    final deep = scan == 'thorough' || scan == 'ironclad';
+    return deep ? base * 2 : base;
+  }
+
   static const protocolHints = <String, String>{
-    'masque': 'An HTTP/3 or HTTP/2 tunnel that looks like ordinary HTTPS. The best default.',
+    'auto': 'Tries WireGuard, then MASQUE, then MASQUE², then Gool, and keeps the first that connects.',
+    'masque': 'An HTTP/3 or HTTP/2 tunnel that looks like ordinary HTTPS.',
     'wg': 'Classic WireGuard. Fastest where UDP gets through.',
     'gool': 'WireGuard carried inside MASQUE, for a different exit address.',
     'mim': 'MASQUE carried inside MASQUE, for a different exit address.',
+    'sstp': 'A free VPN Gate server over Windows\' built-in SSTP. Changes your country, covers every app.',
   };
 
   static const transports = <String, String>{'h3': 'HTTP/3', 'h2': 'HTTP/2'};
@@ -261,6 +299,8 @@ class Choices {
   };
 
   static String protocolLong(String p) => switch (p) {
+        'auto' => 'Auto',
+        'sstp' => 'SSTP · VPN Gate',
         'masque' => 'MASQUE',
         'wg' => 'WireGuard',
         'gool' => 'WireGuard in MASQUE',

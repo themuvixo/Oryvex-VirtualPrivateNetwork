@@ -160,7 +160,7 @@ class _ConnectOrbState extends State<ConnectOrb> with TickerProviderStateMixin {
     final hunting = _isHunting(s);
 
     final IconData icon = on ? Icons.lock_rounded : Icons.power_settings_new_rounded;
-    final Color iconColor = on ? Colors.white : (hunting ? Ox.blueIce : Ox.secondary);
+    final Color iconColor = on ? Colors.white : (hunting ? Ox.blue : Ox.secondary);
     final label = switch (s) {
       CoreState.stopped => 'Connect',
       CoreState.connected => 'Disconnect',
@@ -341,7 +341,7 @@ class _OrbPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = w
           ..strokeCap = StrokeCap.round
-          ..color = _a(stopping ? Ox.tertiary : const Color(0xFF4A4A4E), idleA),
+          ..color = _a(stopping ? Ox.tertiary : const Color(0xFFC7C7CC), idleA),
       );
     }
 
@@ -413,7 +413,7 @@ class _OrbPainter extends CustomPainter {
       c.translate(0, s * 0.02),
       dr,
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.55)
+        ..color = Colors.black.withValues(alpha: 0.10 + 0.12 * vOn)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.04),
     );
     final discRect = Rect.fromCircle(center: c, radius: dr);
@@ -425,8 +425,8 @@ class _OrbPainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Color.lerp(const Color(0xFF2E2E31), const Color(0xFF3AA0FF), vOn)!,
-            Color.lerp(const Color(0xFF151517), const Color(0xFF0046D5), vOn)!,
+            Color.lerp(const Color(0xFFFFFFFF), const Color(0xFF3AA0FF), vOn)!,
+            Color.lerp(const Color(0xFFEDEDF0), const Color(0xFF0058E0), vOn)!,
           ],
         ).createShader(discRect),
     );
@@ -436,7 +436,7 @@ class _OrbPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.white.withValues(alpha: 0.07 + 0.10 * vOn),
+        ..color = Color.lerp(Colors.black.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0.18), vOn)!,
     );
     final shine = Rect.fromCenter(center: c.translate(0, -dr * 0.45), width: dr * 1.5, height: dr * 0.9);
     canvas.drawOval(
@@ -466,7 +466,7 @@ class _OrbPainter extends CustomPainter {
           ).createShader(Rect.fromCircle(center: node, radius: haloR)),
       );
     }
-    final restCore = stopping ? Ox.tertiary : const Color(0xFF5A5A5F);
+    final restCore = stopping ? Ox.tertiary : const Color(0xFFAEAEB2);
     final coreColor = Color.lerp(Color.lerp(restCore, Ox.blueIce, vHunt), Colors.white, vOn)!;
     canvas.drawCircle(node, w * 0.95, Paint()..color = coreColor);
   }

@@ -43,13 +43,12 @@ class SettingsPage extends StatelessWidget {
                     children: [
                       ChoiceRow(
                         label: 'Protocol',
-                        segmented: true,
-                        options: Choices.protocols,
+                        options: Choices.protocolsFor(sstp: c.supportsSstp),
                         value: s.protocol,
                         hint: Choices.protocolHints[s.protocol],
                         onChanged: (v) => set((x) => x.protocol = v),
                       ),
-                      if (!s.torOnly && usesMasqueCarrier(s.protocol))
+                      if (!s.torOnly && (usesMasqueCarrier(s.protocol) || s.protocol == 'auto'))
                         ChoiceRow(
                           label: 'MASQUE carrier',
                           segmented: true,
@@ -304,17 +303,6 @@ class _About extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-        NavRow(
-          title: 'Open-source licenses',
-          value: 'AGPL-3.0',
-          onTap: () => showLicensePage(
-            context: context,
-            applicationName: kAppName,
-            applicationVersion: kAppVersion,
-            applicationLegalese: 'Created by $kCreator. Free software under the GNU AGPL v3.0.',
-            applicationIcon: const Padding(padding: EdgeInsets.all(12), child: OxLogoTile(size: 56)),
           ),
         ),
       ],

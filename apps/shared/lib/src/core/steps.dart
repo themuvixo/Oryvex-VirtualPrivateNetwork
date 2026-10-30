@@ -59,6 +59,15 @@ class ConnectionPlan {
 
   factory ConnectionPlan.of(CoreSettings s, {required bool android}) {
     final steps = <ConnStep>[];
+    if (s.protocol == 'sstp' && !s.torOnly && !android) {
+      // SSTP runs in Windows itself, not in the core: the controller writes these lines.
+      steps.add(ConnStep('servers', 'Pick a server',
+          starts: const ['sstp: refreshing'], finishes: const ['sstp: list ready'], idle: 'VPN Gate servers'));
+      steps.add(ConnStep('tunnel', 'SSTP handshake',
+          starts: const ['sstp: dialing'], finishes: const ['sstp: connected'], idle: 'Windows SSTP client'));
+      steps.add(ConnStep('ready', 'Online', idle: 'Every app on this PC'));
+      return ConnectionPlan._(steps, s.socksPort);
+    }
     if (s.torOnly) {
       steps.add(ConnStep('start', 'Start the core', finishes: const ['bootstrapping tor'], idle: 'Launching'));
       steps.add(ConnStep('tor', 'Bootstrap Tor',
@@ -234,6 +243,15 @@ class ConnectionPlan {
       steps[i].status = StepStatus.pending;
       steps[i].detail = steps[i].idle;
     }
+  }
+
+  /// Marks every stage done, for routes whose readiness the app learns itself (SSTP).
+  void completeAll({String? readyDetail}) {
+    for (final x in steps) {
+      x.status = StepStatus.done;
+    }
+    final i = _readyIndex;
+    if (i >= 0 && readyDetail != null) steps[i].detail = readyDetail;
   }
 
   void reset() {

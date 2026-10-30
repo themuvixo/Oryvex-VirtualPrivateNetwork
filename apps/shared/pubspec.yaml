@@ -1,7 +1,7 @@
 name: oryvex_shared
 description: "Shared UI, theme, fonts and core control for the OryvexVPN desktop and Android apps."
 publish_to: 'none'
-version: 2.5.0
+version: 1.0.0
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

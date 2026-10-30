@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../core/args.dart';
 import '../core/controller.dart';
 import '../core/settings.dart';
+import '../core/sstp_servers.dart';
 import 'theme.dart';
 import 'widgets/brand.dart';
 import 'widgets/motion.dart';
@@ -61,6 +62,15 @@ class HomePage extends StatelessWidget {
                         ],
                       ),
                     ),
+                  Reveal(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 560),
+                        child: _IpCard(controller: c),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
                   _Hero(controller: c, orbSize: orbSize, compact: compact, onOpenActivity: onOpenActivity),
                   _Collapsible(
                     show: c.lastError != null,
@@ -153,9 +163,21 @@ class _Hero extends StatelessWidget {
     final c = controller;
     final s = c.settings;
     final step = c.plan.current;
-    final route = s.torOnly
-        ? 'Tor only'
-        : '${Choices.protocolLong(s.protocol)}${usesMasqueCarrier(s.protocol) ? ' over ${Choices.transports[s.transport]}' : ''}';
+    final shown = c.routeProtocol;
+    final String route;
+    if (s.torOnly) {
+      route = 'Tor only';
+    } else if (shown == 'sstp') {
+      final server = c.sstpConnected;
+      route = server == null ? Choices.protocolLong('sstp') : 'SSTP · ${server.label}';
+    } else {
+      final carrier = usesMasqueCarrier(shown) ? ' over ${Choices.transports[s.transport]}' : '';
+      final autoStep = c.autoStepLabel;
+      final count = autoStep == null ? '' : ' ($autoStep)';
+      route = c.isAuto
+          ? 'Auto · ${Choices.protocolLong(shown)}$carrier$count'
+          : '${Choices.protocolLong(shown)}$carrier';
+    }
 
     final (String eyebrow, Color eyebrowColor) = switch (c.state) {
       CoreState.stopped => ('Private by design', Ox.blue),
@@ -168,10 +190,12 @@ class _Hero extends StatelessWidget {
 
     final String sub = switch (c.state) {
       CoreState.connected => c.edge != null ? 'via ${c.edge}  ·  $route' : route,
-      CoreState.connecting || CoreState.reconnecting => step?.detail ?? route,
-      CoreState.starting => 'Checking your ports',
+      CoreState.connecting || CoreState.reconnecting => c.isAuto ? route : (step?.detail ?? route),
+      CoreState.starting => c.isAuto && c.activeProtocol != null ? route : 'Checking your ports',
       CoreState.stopping => 'Closing the tunnel',
-      CoreState.stopped => '$route  ·  ${Choices.scans[s.scan]} scan',
+      CoreState.stopped => c.isAuto
+          ? 'Auto: WireGuard › MASQUE › MASQUE² › Gool'
+          : (shown == 'sstp' ? route : '$route  ·  ${Choices.scans[s.scan]} scan'),
     };
 
     return Column(
@@ -261,7 +285,8 @@ class _Cta extends StatelessWidget {
               label,
               key: ValueKey<String>(label),
               style: Ox.body(17,
-                  weight: FontWeight.w600, color: state == CoreState.stopping ? Ox.secondary : Colors.white),
+                  weight: FontWeight.w600,
+                  color: primary ? Colors.white : (state == CoreState.stopping ? Ox.secondary : Ox.text)),
             ),
           ),
         ),
@@ -463,7 +488,7 @@ class _Bento extends StatelessWidget {
             label: 'Gateway',
             value: c.edge ?? '—',
             mono: true,
-            foot: c.settings.torOnly ? 'Tor' : Choices.protocolLong(c.settings.protocol),
+            foot: c.settings.torOnly ? 'Tor' : Choices.protocolLong(c.routeProtocol),
           ),
         ];
         return Wrap(
@@ -554,14 +579,30 @@ class _RouteAndMode extends StatelessWidget {
             Text('Tor only is on: the tunnel is skipped. Change it under Settings › Extra exit.',
                 style: Ox.body(15, color: Ox.secondary))
           else ...[
-            Segmented(
-              options: Choices.protocols,
+            ChoicePills(
+              options: Choices.protocolsFor(sstp: c.supportsSstp),
               value: s.protocol,
               onChanged: (v) => c.updateSettings((x) => x.protocol = v),
             ),
             const SizedBox(height: 10),
             _Hint(Choices.protocolHints[s.protocol] ?? ''),
-            if (usesMasqueCarrier(s.protocol)) ...[
+            if (s.protocol == 'sstp') ...[
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(child: Text('Server', style: Ox.body(15, weight: FontWeight.w500))),
+                  if (c.sstpRefreshing)
+                    const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  else
+                    OxLink('Refresh list', onTap: () => c.refreshSstpServers()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _SstpPicker(controller: c),
+              const SizedBox(height: 10),
+              _Hint(_sstpListNote(c)),
+            ],
+            if (usesMasqueCarrier(s.protocol) || s.protocol == 'auto') ...[
               const SizedBox(height: 18),
               Text('Carrier', style: Ox.body(15, weight: FontWeight.w500)),
               const SizedBox(height: 10),
@@ -571,16 +612,18 @@ class _RouteAndMode extends StatelessWidget {
                 onChanged: (v) => c.updateSettings((x) => x.transport = v),
               ),
             ],
-            const SizedBox(height: 18),
-            Text('Scan', style: Ox.body(15, weight: FontWeight.w500)),
-            const SizedBox(height: 10),
-            ChoicePills(
-              options: Choices.scans,
-              value: s.scan,
-              onChanged: (v) => c.updateSettings((x) => x.scan = v),
-            ),
-            const SizedBox(height: 10),
-            _Hint(Choices.scanHints[s.scan] ?? ''),
+            if (s.protocol != 'sstp') ...[
+              const SizedBox(height: 18),
+              Text('Scan', style: Ox.body(15, weight: FontWeight.w500)),
+              const SizedBox(height: 10),
+              ChoicePills(
+                options: Choices.scans,
+                value: s.scan,
+                onChanged: (v) => c.updateSettings((x) => x.scan = v),
+              ),
+              const SizedBox(height: 10),
+              _Hint(Choices.scanHints[s.scan] ?? ''),
+            ],
           ],
         ],
       ),
@@ -598,6 +641,15 @@ class _RouteAndMode extends StatelessWidget {
             child: Text('Mode', style: Ox.headline(22, weight: FontWeight.w600)),
           ),
           const SizedBox(height: 6),
+          if (s.protocol == 'sstp' && !s.torOnly)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+              child: Text(
+                'SSTP runs in Windows itself: every app on this PC goes through it, with no proxy to set up.',
+                style: Ox.body(15, color: Ox.secondary),
+              ),
+            )
+          else ...[
           if (c.backend.supportsVpn)
             SwitchRow(
               title: 'Whole-device VPN',
@@ -623,6 +675,7 @@ class _RouteAndMode extends StatelessWidget {
           if (s.chain == 'tor' && !s.torOnly) _AddressRow(label: 'Tor', address: '$host:${s.torPort}'),
           if (s.chain == 'psiphon' && c.backend.supportsPsiphon)
             _AddressRow(label: 'Psiphon', address: '$host:${s.psiphonPort}'),
+          ],
         ],
       ),
     );
@@ -692,6 +745,160 @@ class _AddressRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "33 servers bundled with the app" / "41 servers · updated 2 h ago".
+String _sstpListNote(CoreController c) {
+  final n = c.sstpServers.length;
+  final at = c.sstpUpdatedAt;
+  final base = at == null ? '$n VPN Gate servers bundled with the app' : '$n VPN Gate servers · updated ${_ago(at)}';
+  return '$base. User and password: vpn.';
+}
+
+String _ago(DateTime t) {
+  final d = DateTime.now().difference(t);
+  if (d.inMinutes < 1) return 'just now';
+  if (d.inHours < 1) return '${d.inMinutes} min ago';
+  if (d.inDays < 1) return '${d.inHours} h ago';
+  return '${d.inDays} d ago';
+}
+
+/// The VPN Gate server SSTP dials. "Best available" tries the top servers in turn.
+class _SstpPicker extends StatelessWidget {
+  const _SstpPicker({required this.controller});
+
+  final CoreController controller;
+
+  static String _label(SstpServer x) {
+    final where = x.country.isEmpty ? x.address : '${x.country} · ${x.address}';
+    return x.ping > 0 ? '$where · ${x.ping} ms' : where;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final chosen = c.settings.sstpServer;
+    final items = <DropdownMenuItem<String>>[
+      DropdownMenuItem<String>(value: '', child: Text('Best available', style: Ox.body(15))),
+    ];
+    final seen = <String>{''};
+    for (final x in c.sstpServers) {
+      if (!seen.add(x.address)) continue;
+      items.add(DropdownMenuItem<String>(
+        value: x.address,
+        child: Text(_label(x), maxLines: 1, overflow: TextOverflow.ellipsis, style: Ox.body(15)),
+      ));
+    }
+    final value = seen.contains(chosen) ? chosen : '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(color: Ox.field, borderRadius: BorderRadius.circular(Ox.radiusField)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          isExpanded: true,
+          dropdownColor: Ox.tile,
+          borderRadius: BorderRadius.circular(14),
+          icon: const Icon(Icons.expand_more_rounded, color: Ox.secondary),
+          items: items,
+          onChanged: c.isActive ? null : (v) => c.updateSettings((x) => x.sstpServer = v ?? ''),
+        ),
+      ),
+    );
+  }
+}
+
+/// Who the internet sees: the public address and its country, first thing on the page.
+class _IpCard extends StatelessWidget {
+  const _IpCard({required this.controller});
+
+  final CoreController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final info = c.ipInfo;
+    final on = c.state == CoreState.connected;
+    final protected = on && info != null && (info.viaTunnel || c.activeProtocol == 'sstp');
+    final flag = c.backend.isAndroid ? (info?.flag ?? '') : '';
+    final String place;
+    if (info == null) {
+      place = c.ipLoading ? 'Finding your country' : 'Could not check. Tap to try again.';
+    } else {
+      place = info.countryCode.isEmpty ? 'Country unknown' : info.country;
+    }
+    return Pressable(
+      onTap: c.ipLoading ? null : c.refreshIp,
+      scale: 0.98,
+      semanticLabel: 'Your IP address. Tap to check again.',
+      borderRadius: BorderRadius.circular(Ox.radiusTile),
+      child: OxTile(
+        padding: const EdgeInsets.fromLTRB(14, 12, 16, 12),
+        child: Row(
+          children: [
+            _CountryBadge(code: info?.countryCode ?? '', flag: flag),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    protected ? 'Your IP · protected' : (on ? 'Your IP' : 'Your IP · not protected'),
+                    maxLines: 1,
+                    style: Ox.body(13, weight: FontWeight.w600, color: protected ? Ox.blue : Ox.secondary),
+                  ),
+                  const SizedBox(height: 2),
+                  AnimatedSwitcher(
+                    duration: Ox.medium,
+                    child: Text(
+                      info?.ip ?? (c.ipLoading ? 'Looking up…' : '—'),
+                      key: ValueKey<String>(info?.ip ?? 'none'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Ox.code(18, weight: FontWeight.w600, height: 1.3),
+                    ),
+                  ),
+                  Text(place, maxLines: 1, overflow: TextOverflow.ellipsis, style: Ox.body(15, color: Ox.secondary)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (c.ipLoading)
+              const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            else
+              const Icon(Icons.refresh_rounded, size: 20, color: Ox.blue),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CountryBadge extends StatelessWidget {
+  const _CountryBadge({required this.code, required this.flag});
+
+  final String code;
+  final String flag;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget child;
+    if (flag.isNotEmpty) {
+      child = Text(flag, style: const TextStyle(fontSize: 26, height: 1.0));
+    } else if (code.isNotEmpty) {
+      child = Text(code, style: Ox.headline(17, weight: FontWeight.w700));
+    } else {
+      child = const Icon(Icons.public_rounded, size: 22, color: Ox.secondary);
+    }
+    return Container(
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: Ox.field, borderRadius: BorderRadius.circular(14)),
+      child: child,
     );
   }
 }
