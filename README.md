@@ -22,6 +22,8 @@ OryvexCore finds a route that works on your network, opens an encrypted tunnel t
 - **Hard to fingerprint.** Chrome-shaped TLS, ClientHello fragmentation, obfuscation profiles from `light` to `gfw`.
 - **Extra exits.** Tor through the tunnel, Tor alone, or Psiphon through the tunnel (desktop).
 - **Stays up.** Automatic reconnect, and quick reconnect to the last gateway that worked.
+- **Verifies real traffic.** The app waits for HTTPS through the tunnel to return HTTP 200 before showing Connected.
+- **Manual SSTP refresh.** VPN Gate server lists use the bundled or saved copy until you refresh them in Settings.
 - **Runs anywhere.** Windows, Android, Linux, macOS, OpenWrt routers, Termux and Docker.
 
 ## The apps

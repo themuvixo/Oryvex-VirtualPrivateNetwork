@@ -824,7 +824,7 @@ class _IpCard extends StatelessWidget {
     final info = c.ipInfo;
     final on = c.state == CoreState.connected;
     final protected = on && info != null && (info.viaTunnel || c.activeProtocol == 'sstp');
-    final flag = c.backend.isAndroid ? (info?.flag ?? '') : '';
+    final flag = info?.flag ?? '';
     final String place;
     if (info == null) {
       place = c.ipLoading ? 'Finding your country' : 'Could not check. Tap to try again.';
@@ -889,7 +889,7 @@ class _CountryBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final Widget child;
     if (flag.isNotEmpty) {
-      child = Text(flag, style: const TextStyle(fontSize: 26, height: 1.0));
+      child = Text(flag, style: const TextStyle(fontFamily: 'Segoe UI Emoji', fontFamilyFallback: ['Segoe UI Symbol', 'Noto Color Emoji'], fontSize: 26, height: 1.0));
     } else if (code.isNotEmpty) {
       child = Text(code, style: Ox.headline(17, weight: FontWeight.w700));
     } else {

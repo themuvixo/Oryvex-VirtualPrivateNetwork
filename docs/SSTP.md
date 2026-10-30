@@ -9,3 +9,8 @@ The upstream engine identifies SoftEther/VPN Azure as its officially supported t
 VPN Gate's own Android how-to lists the Android connection approaches it documents; it is not the source of OryvexVPN's Android SSTP implementation. The separate VPN Gate SSTP guide provides the hostname, port and credential requirements used here.
 
 Upstream source and MIT notice: `apps/android-src/sstp-engine/UPSTREAM.md` and `LICENSE`.
+
+
+## Server list refresh behavior
+
+The app does not automatically fetch VPN Gate's directory when connecting or retrying. It uses the bundled list or the last saved list, so a timeout reaching `vpngate.net` cannot stall SSTP connection attempts. Use **Refresh list** in Settings when you want to fetch an updated directory.

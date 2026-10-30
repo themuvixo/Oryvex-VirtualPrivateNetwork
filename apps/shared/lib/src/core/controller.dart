@@ -104,6 +104,7 @@ class CoreController extends ChangeNotifier {
   /// Which entry of [Choices.autoOrder] Auto is on.
   int autoIndex = 0;
   Timer? _attemptTimer;
+  Timer? _verificationTimer;
   bool _switching = false;
 
   // --- SSTP (Windows and Android) -------------------------------------------------------------
@@ -119,6 +120,7 @@ class CoreController extends ChangeNotifier {
   SstpServer? sstpConnected;
   Timer? _sstpPoll;
   int _sstpMisses = 0;
+  int? _verificationRun;
 
   // --- Public address -------------------------------------------------------------------------
 
@@ -435,6 +437,8 @@ class CoreController extends ChangeNotifier {
     sstpConnected = null;
     _attemptTimer?.cancel();
     _attemptTimer = null;
+    _verificationTimer?.cancel();
+    _verificationTimer = null;
     _sstpPoll?.cancel();
     _sstpPoll = null;
     // The speed tiles fall back to zero instead of freezing on the last sample.
@@ -527,28 +531,13 @@ class CoreController extends ChangeNotifier {
     logRevision++;
 
     final msg = line.message;
-    if (plan.ingest(msg)) {
-      if (plan.ready &&
-          (state == CoreState.connecting ||
-              state == CoreState.reconnecting ||
-              state == CoreState.starting)) {
-        final first = connectedAt == null;
-        state = CoreState.connected;
-        connectedAt ??= DateTime.now();
-        lastError = null;
-        _attemptTimer?.cancel();
-        _attemptTimer = null;
-        if (first) {
-          if (isAuto && activeProtocol != null) {
-            _gui('[gui] auto: connected with ${Choices.protocolLong(activeProtocol!)}');
-          }
-          // Give the tunnel a moment to carry traffic, then ask who we look like now.
-          final run = _run;
-          Timer(const Duration(milliseconds: 1500), () {
-            if (_run == run && state == CoreState.connected) unawaited(refreshIp());
-          });
-        }
-      }
+    if (plan.ingest(msg) && plan.ready &&
+        (state == CoreState.connecting ||
+            state == CoreState.reconnecting ||
+            state == CoreState.starting)) {
+      // The engine's "ready" line only proves the tunnel handshake. Keep the UI in
+      // Connecting until an HTTPS request through the route returns HTTP 200.
+      unawaited(_verifyAndMarkConnected(_run));
     }
     if (isAuto && state == CoreState.connecting && !_switching) {
       final lower = msg.toLowerCase();
@@ -719,17 +708,9 @@ class CoreController extends ChangeNotifier {
     _notify();
 
     try {
-      final at = sstpUpdatedAt;
-      if (at == null || DateTime.now().difference(at) > VpnGateDirectory.maxAge) {
-        _gui('[gui] sstp: refreshing the server list from vpngate.net');
-        await refreshSstpServers(quiet: true);
-        if (_cancelRequested || _run != run) {
-          _finishCancelled(run);
-          return;
-        }
-      } else {
-        _gui('[gui] sstp: list ready, ${sstpServers.length} saved servers');
-      }
+      // Never fetch the directory during connect or retry. Use the bundled/cached list;
+      // the Settings refresh action is the only network refresh path.
+      _gui('[gui] sstp: list ready, ${sstpServers.length} saved servers (manual refresh only)');
       state = CoreState.connecting;
       _notify();
 
@@ -758,15 +739,17 @@ class CoreController extends ChangeNotifier {
         if (error == null) {
           sstpConnected = server;
           edge = server.address;
-          state = CoreState.connected;
-          connectedAt = DateTime.now();
-          lastError = null;
           plan.completeAll(readyDetail: server.label);
-          _gui('[gui] sstp: connected to ${server.address}');
-          _startSstpPoll(run);
-          Timer(const Duration(milliseconds: 1500), () {
-            if (_run == run && state == CoreState.connected) unawaited(refreshIp());
-          });
+          _gui('[gui] sstp: tunnel established; checking HTTPS traffic');
+          final verified = await _verifyAndMarkConnected(run, directRoute: true);
+          if (!verified) {
+            await SstpClient.disconnect();
+            throw BackendException('SSTP connected, but the HTTPS traffic check did not return HTTP 200.');
+          }
+          if (_run == run && state == CoreState.connected) {
+            _gui('[gui] sstp: connected to ${server.address}');
+            _startSstpPoll(run);
+          }
           return;
         }
         _gui('[gui] sstp: ${server.address} did not connect: $error');
@@ -788,8 +771,63 @@ class CoreController extends ChangeNotifier {
     }
   }
 
-  /// While SSTP is up: the adapter's byte counters every two seconds, and a check that
-  /// Windows still has the connection.
+  /// Verify the tunnel with HTTPS before reporting Connected. Core routes use SOCKS;
+  /// Windows SSTP uses the OS-routed adapter.
+  Future<bool> _verifyAndMarkConnected(int run, {bool directRoute = false}) async {
+    if (_verificationRun == run || _run != run || state == CoreState.stopped ||
+        state == CoreState.stopping) return false;
+    _verificationRun = run;
+    _attemptTimer?.cancel();
+    _attemptTimer = null;
+    _gui('[gui] verify: testing HTTPS through the tunnel (HTTP 200 required)');
+    try {
+      // IpLookup tries two independently hosted HTTPS endpoints and accepts only 200 responses.
+      // Core protocols go through the local SOCKS proxy; Windows SSTP uses its system route.
+      final result = await IpLookup.lookup(
+        socksPort: directRoute ? null : IpLookup.socksPortForRoute(
+          tunnelConnected: true,
+          activeProtocol: activeProtocol,
+          configuredSocksPort: settings.socksPort,
+        ),
+        throughTunnel: true,
+        timeout: const Duration(seconds: 8),
+      );
+      if (_run != run || state == CoreState.stopped || state == CoreState.stopping) return false;
+      if (result == null) {
+        lastError = 'Tunnel handshake succeeded, but the HTTPS traffic check got no HTTP 200 response. Still verifying, not marked connected.';
+        _gui('[gui] verify: HTTPS check failed; connection is not marked connected');
+        if (isAuto && _run == run) {
+          unawaited(_failover(run, 'HTTPS verification did not return HTTP 200'));
+        } else if (!directRoute && _run == run && state != CoreState.stopped && state != CoreState.stopping) {
+          _verificationTimer?.cancel();
+          _verificationTimer = Timer(const Duration(seconds: 5), () {
+            _verificationTimer = null;
+            unawaited(_verifyAndMarkConnected(run));
+          });
+        }
+        return false;
+      }
+      final first = connectedAt == null;
+      state = CoreState.connected;
+      connectedAt ??= DateTime.now();
+      ipInfo = result;
+      lastError = null;
+      _attemptTimer?.cancel();
+      _attemptTimer = null;
+      _gui('[gui] verify: HTTPS returned 200 via ${result.ip}');
+      if (first && isAuto && activeProtocol != null) {
+        _gui('[gui] auto: connected with ${Choices.protocolLong(activeProtocol!)}');
+      }
+      _verificationTimer?.cancel();
+      _verificationTimer = null;
+      _notify();
+      return true;
+    } finally {
+      if (_verificationRun == run) _verificationRun = null;
+      _notify();
+    }
+  }
+
   void _startSstpPoll(int run) {
     _sstpPoll?.cancel();
     _sstpMisses = 0;

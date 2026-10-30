@@ -6,8 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'sstp_servers.dart';
 
-/// The SSTP server list: the one bundled with the app, replaced by a fresh copy of
-/// vpngate.net's own table whenever the page can be reached.
+/// SSTP server list source: the bundled list or the last explicitly refreshed VPN Gate table.
 class VpnGateDirectory {
   VpnGateDirectory._();
 
@@ -15,8 +14,7 @@ class VpnGateDirectory {
   static const _cacheKey = 'oryvexcore.sstp.servers.v1';
   static const _cacheAtKey = 'oryvexcore.sstp.servers.at.v1';
 
-  /// A refreshed list older than this is fetched again before SSTP dials.
-  static const maxAge = Duration(hours: 6);
+  /// Server-list refresh is explicit only. Cached and bundled data never triggers a network fetch.
 
   /// The last saved list and when it was fetched, or the bundled list with no date.
   static Future<(List<SstpServer>, DateTime?)> load() async {

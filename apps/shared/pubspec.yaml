@@ -12,6 +12,8 @@ dependencies:
   ffi: ^2.1.2
   flutter_svg: ^2.0.10
   shared_preferences: ^2.2.3
+  window_manager: ^0.4.3
+  system_tray: ^2.0.3
 
 dev_dependencies:
   flutter_test:
@@ -22,6 +24,7 @@ flutter:
   assets:
     - assets/logo.svg
     - assets/logo-mark.svg
+    - assets/app_icon.ico
   fonts:
     - family: Inter
       fonts:
