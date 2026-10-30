@@ -38,20 +38,21 @@ class PageTitle extends StatelessWidget {
 
 /// A rounded white tile on the grey canvas: apple.com's product tile.
 class OxTile extends StatelessWidget {
-  const OxTile({super.key, required this.child, this.padding = const EdgeInsets.all(20), this.color = Ox.tile});
+  const OxTile({super.key, required this.child, this.padding = const EdgeInsets.all(20), this.color});
 
   final Widget child;
   final EdgeInsetsGeometry padding;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final tileColor = color ?? Ox.tile;
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: color,
+        color: tileColor,
         borderRadius: BorderRadius.circular(Ox.radiusTile),
-        boxShadow: color == Ox.tile ? Ox.tileShadow : null,
+        boxShadow: tileColor == Ox.tile ? Ox.tileShadow : null,
       ),
       child: child,
     );
@@ -401,7 +402,7 @@ class NavRow extends StatelessWidget {
             if (value != null) Text(value!, style: Ox.body(15, color: Ox.secondary)),
             if (onTap != null) ...[
               const SizedBox(width: 6),
-              const Icon(Icons.chevron_right_rounded, color: Ox.tertiary, size: 22),
+              Icon(Icons.chevron_right_rounded, color: Ox.tertiary, size: 22),
             ],
           ],
         ),

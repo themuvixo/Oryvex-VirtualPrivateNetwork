@@ -260,7 +260,7 @@ class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
     if (status == StepStatus.done) {
       child = Container(
         key: const ValueKey('done'),
-        decoration: const BoxDecoration(shape: BoxShape.circle, color: Ox.blue),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: Ox.blue),
         child: const Icon(Icons.check_rounded, size: 15, color: Colors.white),
       );
     } else if (_live) {

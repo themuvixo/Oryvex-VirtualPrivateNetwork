@@ -29,7 +29,7 @@ the file is not repeated; the entry names where it is.
 
 A crate whose package carries no license file, such as the arti and tor-*
 crates and boringtun, gets the standard text of each license its expression
-names (both for "MIT OR Apache-2.0") from license-texts/ beside this script,
+names (both for "MIT OR Apache-2.0") from license-texts/ at the repository root,
 whose README says where each text was copied from. A copyright line comes
 first: one per entry of the crate's authors field, or the line in
 SOURCE_COPYRIGHT for a crate whose authors are not the holder (boringtun's
@@ -89,8 +89,15 @@ TREE_LINE = re.compile(r"^(\S+) v(\S+)(?: \(.*\))?$")
 # A git symlink placeholder holds the link's target, which is short.
 PLACEHOLDER_LIMIT = 256
 PLACEHOLDER_HOPS = 8
-# The standard license texts, <SPDX identifier>.txt, beside this script.
+# The standard license texts, <SPDX identifier>.txt, under the repository root.
 STANDARD_TEXTS = "license-texts"
+
+
+def standard_texts_dir(script_file):
+    """Resolve the repository-root license-texts directory from this script."""
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(script_file)), "..", "..", STANDARD_TEXTS))
+
+
 # The licenses whose text begins with the holder's copyright line. A crate
 # without a license file that names one of them needs a copyright line
 # before the standard text, even when its authors field is empty.
@@ -489,7 +496,7 @@ def main():
         fail("no crate is linked into the package")
     crates.sort(key=lambda p: (p["name"], p["version"]))
     tree_root = os.path.dirname(os.path.dirname(root["manifest_path"]))
-    texts_folder = os.path.join(here, STANDARD_TEXTS)
+    texts_folder = standard_texts_dir(__file__)
     texts = standard_texts(texts_folder)
 
     # Every standard text a crate without a license file needs, checked up

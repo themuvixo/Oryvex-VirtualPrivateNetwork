@@ -83,6 +83,11 @@ android {
     }
 }
 
+dependencies {
+    implementation(project(":sstp-engine"))
+    testImplementation("junit:junit:4.13.2")
+}
+
 flutter {
     source = "../.."
 }

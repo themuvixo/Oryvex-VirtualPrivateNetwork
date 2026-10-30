@@ -6,6 +6,7 @@
 <p align="center">
   <a href="https://github.com/OWNER/OryvexCore/releases/latest">Download</a> ·
   <a href="docs/GUIDE.md">Guide</a> ·
+  <a href="docs/SSTP.md">SSTP / VPN Gate support</a> ·
   <a href="docs/DOCS.md">Full reference</a> ·
   <a href="docs/OPENWRT.md">OpenWrt</a>
 </p>

@@ -434,7 +434,7 @@ class _Banner extends StatelessWidget {
               tooltip: 'Dismiss',
               visualDensity: VisualDensity.compact,
               onPressed: onClose,
-              icon: const Icon(Icons.close_rounded, size: 18, color: Ox.secondary),
+              icon: Icon(Icons.close_rounded, size: 18, color: Ox.secondary),
             ),
         ],
       ),
@@ -645,7 +645,9 @@ class _RouteAndMode extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
               child: Text(
-                'SSTP runs in Windows itself: every app on this PC goes through it, with no proxy to set up.',
+                c.backend.isAndroid
+                    ? 'SSTP uses the Android VPN service and routes device traffic through the selected VPN Gate relay.'
+                    : 'SSTP runs in Windows itself: every app on this PC goes through it, with no proxy to set up.',
                 style: Ox.body(15, color: Ox.secondary),
               ),
             )
@@ -801,7 +803,7 @@ class _SstpPicker extends StatelessWidget {
           isExpanded: true,
           dropdownColor: Ox.tile,
           borderRadius: BorderRadius.circular(14),
-          icon: const Icon(Icons.expand_more_rounded, color: Ox.secondary),
+          icon: Icon(Icons.expand_more_rounded, color: Ox.secondary),
           items: items,
           onChanged: c.isActive ? null : (v) => c.updateSettings((x) => x.sstpServer = v ?? ''),
         ),
@@ -891,7 +893,7 @@ class _CountryBadge extends StatelessWidget {
     } else if (code.isNotEmpty) {
       child = Text(code, style: Ox.headline(17, weight: FontWeight.w700));
     } else {
-      child = const Icon(Icons.public_rounded, size: 22, color: Ox.secondary);
+      child = Icon(Icons.public_rounded, size: 22, color: Ox.secondary);
     }
     return Container(
       width: 48,

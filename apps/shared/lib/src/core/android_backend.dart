@@ -217,7 +217,9 @@ class AndroidBackend implements CoreBackend {
     try {
       await _method.invokeMethod('start', {
         'args': args,
-        'vpn': settings.vpnMode,
+        'vpn': settings.protocol == 'sstp' || settings.vpnMode,
+        'protocol': settings.protocol,
+        'sstpAddress': settings.protocol == 'sstp' ? settings.sstpServer : null,
         'socksPort': settings.socksPort,
         'fakeDns': settings.fakeDns,
         'ipv6': settings.vpnIpv6,

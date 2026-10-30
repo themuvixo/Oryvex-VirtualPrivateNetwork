@@ -7,17 +7,12 @@ class IpInfo {
   const IpInfo({required this.ip, required this.countryCode, required this.viaTunnel, required this.at});
 
   final String ip;
-
-  /// ISO 3166-1 alpha-2, upper case. Empty when the lookup could not tell.
   final String countryCode;
-
-  /// True when the lookup went out through the tunnel (so this is the VPN's exit).
   final bool viaTunnel;
   final DateTime at;
 
   String get country => countryName(countryCode);
 
-  /// The flag emoji for [countryCode] ("🇯🇵"), or an empty string.
   String get flag {
     final cc = countryCode;
     if (cc.length != 2) return '';
@@ -27,67 +22,139 @@ class IpInfo {
   }
 }
 
-/// Asks who we look like to the outside: Cloudflare's trace page first ("ip=…", "loc=JP"), and
-/// ip-api.com if Cloudflare does not answer. Plain HTTP over a raw socket, so it can go out
-/// through the core's own SOCKS5 port: the app itself is left out of its Android VPN, and on
-/// desktop the core is a proxy, so a direct request would show the real address.
+/// Resolves the public egress IP over verified HTTPS. When [socksPort] is supplied, every
+/// request is tunneled through that proxy and never falls back to the device's direct route.
+/// Without it, the OS routing table is used, which includes a connected Windows SSTP adapter.
 class IpLookup {
   IpLookup._();
 
-  static const _cloudflare = <String>['1.1.1.1', '1.0.0.1'];
+  static const endpoints = <(String, String)>[
+    ('www.cloudflare.com', '/cdn-cgi/trace'),
+    ('ipapi.co', '/json/'),
+  ];
+  static const _ipPattern = r'^(?:\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$';
 
-  static Future<IpInfo?> lookup({int? socksPort, Duration timeout = const Duration(seconds: 10)}) async {
-    for (final host in _cloudflare) {
+  /// The Android app process bypasses its own VpnService, so core tunnels must use SOCKS.
+  /// Windows SSTP is a system route and intentionally uses the direct socket path.
+  static int? socksPortForRoute({
+    required bool tunnelConnected,
+    required String? activeProtocol,
+    required int configuredSocksPort,
+  }) => tunnelConnected && activeProtocol != 'sstp' ? configuredSocksPort : null;
+
+  static Future<IpInfo?> lookup({
+    int? socksPort,
+    bool throughTunnel = false,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    for (var i = 0; i < endpoints.length; i++) {
+      final (host, path) = endpoints[i];
       try {
-        final body = await _get(host, '/cdn-cgi/trace', socksPort).timeout(timeout);
-        final ip = RegExp(r'^ip=(\S+)\s*$', multiLine: true).firstMatch(body)?.group(1);
-        final loc = RegExp(r'^loc=([A-Za-z]{2})\s*$', multiLine: true).firstMatch(body)?.group(1);
-        if (ip != null && ip.isNotEmpty) {
-          return IpInfo(ip: ip, countryCode: (loc ?? '').toUpperCase(), viaTunnel: socksPort != null, at: DateTime.now());
+        final body = await _get(host, path, socksPort).timeout(timeout);
+        final parsed = i == 0 ? parseCloudflareTrace(body) : parseIpApiJson(body);
+        if (parsed != null) {
+          return IpInfo(ip: parsed.$1, countryCode: parsed.$2, viaTunnel: throughTunnel, at: DateTime.now());
         }
-      } catch (_) {}
-    }
-    try {
-      final body = await _get('ip-api.com', '/line/?fields=query,countryCode', socksPort).timeout(timeout);
-      final lines = body.split(RegExp(r'\r?\n')).map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-      if (lines.isNotEmpty && RegExp(r'^[0-9a-fA-F:.]+$').hasMatch(lines.first)) {
-        final cc = lines.length > 1 && lines[1].length == 2 ? lines[1].toUpperCase() : '';
-        return IpInfo(ip: lines.first, countryCode: cc, viaTunnel: socksPort != null, at: DateTime.now());
+      } catch (_) {
+        // A failed endpoint is harmless; try the next verified HTTPS provider.
       }
-    } catch (_) {}
+    }
     return null;
   }
 
-  /// GET http://[host][path] and return the body. HTTP/1.0, so the answer is never chunked.
-  static Future<String> _get(String host, String path, int? socksPort) async {
-    final Socket socket;
-    if (socksPort == null) {
-      socket = await Socket.connect(host, 80, timeout: const Duration(seconds: 6));
-    } else {
-      socket = await Socket.connect(InternetAddress.loopbackIPv4, socksPort, timeout: const Duration(seconds: 4));
-    }
-    final reader = _Reader(socket);
+  /// Parses Cloudflare's `ip=...` / `loc=XX` trace format.
+  static (String, String)? parseCloudflareTrace(String body) {
+    final ip = RegExp(r'^ip=(\S+)\s*$', multiLine: true).firstMatch(body)?.group(1);
+    final loc = RegExp(r'^loc=([A-Za-z]{2})\s*$', multiLine: true).firstMatch(body)?.group(1);
+    if (ip == null || !RegExp(_ipPattern).hasMatch(ip) || !_validIp(ip)) return null;
+    return (ip, (loc ?? '').toUpperCase());
+  }
+
+  /// Parses the public JSON response from ipapi.co.
+  static (String, String)? parseIpApiJson(String body) {
     try {
-      if (socksPort != null) await _socksConnect(socket, reader, host, 80);
-      socket.add(ascii.encode('GET $path HTTP/1.0\r\n'
-          'Host: $host\r\n'
-          'User-Agent: OryvexVPN\r\n'
-          'Accept: */*\r\n'
-          'Connection: close\r\n\r\n'));
-      await socket.flush();
-      final raw = utf8.decode(await reader.rest(), allowMalformed: true);
-      final split = raw.indexOf('\r\n\r\n');
-      if (!raw.startsWith('HTTP/') || split < 0) throw const FormatException('not an HTTP answer');
-      final status = raw.substring(0, raw.indexOf('\r\n'));
-      if (!status.contains(' 200')) throw FormatException(status);
-      return raw.substring(split + 4);
-    } finally {
-      await reader.cancel();
-      socket.destroy();
+      final json = jsonDecode(body);
+      if (json is! Map) return null;
+      final ip = json['ip'];
+      final code = json['country_code'];
+      if (ip is! String || !RegExp(_ipPattern).hasMatch(ip) || !_validIp(ip)) return null;
+      return (ip, code is String && RegExp(r'^[A-Za-z]{2}$').hasMatch(code) ? code.toUpperCase() : '');
+    } on FormatException {
+      return null;
     }
   }
 
-  /// SOCKS5, no authentication, CONNECT [host]:[port] by name or address.
+  static bool _validIp(String value) {
+    final parsed = InternetAddress.tryParse(value);
+    return parsed != null && (parsed.type == InternetAddressType.IPv4 || parsed.type == InternetAddressType.IPv6);
+  }
+
+  static Future<String> _get(String host, String path, int? socksPort) async {
+    Socket? raw;
+    SecureSocket? tls;
+    _Reader? proxyReader;
+    try {
+      if (socksPort == null) {
+        tls = await SecureSocket.connect(host, 443, timeout: const Duration(seconds: 6), supportedProtocols: const ['http/1.1']);
+      } else {
+        raw = await Socket.connect(InternetAddress.loopbackIPv4, socksPort, timeout: const Duration(seconds: 4));
+        proxyReader = _Reader(raw);
+        await _socksConnect(raw, proxyReader, host, 443).timeout(const Duration(seconds: 5));
+        await proxyReader.cancel();
+        proxyReader = null;
+        // host is deliberately the DNS name: TLS chain and hostname validation remain enabled.
+        tls = await SecureSocket.secure(raw, host: host, supportedProtocols: const ['http/1.1']).timeout(const Duration(seconds: 6));
+      }
+      tls.write('GET $path HTTP/1.1\r\n'
+          'Host: $host\r\n'
+          'User-Agent: OryvexVPN/1.0\r\n'
+          'Accept: application/json, text/plain\r\n'
+          'Accept-Encoding: identity\r\n'
+          'Connection: close\r\n\r\n');
+      await tls.flush();
+      final responseReader = _Reader(tls);
+      late final List<int> responseBytes;
+      try {
+        responseBytes = await responseReader.rest().timeout(const Duration(seconds: 6));
+      } finally {
+        await responseReader.cancel();
+      }
+      final response = utf8.decode(responseBytes, allowMalformed: true);
+      final split = response.indexOf('\r\n\r\n');
+      if (split < 0) throw const FormatException('HTTPS response has no header boundary');
+      final status = response.substring(0, response.indexOf('\r\n'));
+      if (!RegExp(r'^HTTP/1\.[01] 200(?:\s|$)').hasMatch(status)) throw HttpException(status);
+      final headers = response.substring(response.indexOf('\r\n') + 2, split).toLowerCase();
+      var body = response.substring(split + 4);
+      if (headers.contains('transfer-encoding: chunked')) body = _unchunk(body);
+      return body;
+    } finally {
+      await proxyReader?.cancel();
+      tls?.destroy();
+      raw?.destroy();
+    }
+  }
+
+  static String _unchunk(String body) {
+    final out = StringBuffer();
+    var offset = 0;
+    while (offset < body.length) {
+      final end = body.indexOf('\r\n', offset);
+      if (end < 0) throw const FormatException('malformed chunk header');
+      final size = int.tryParse(body.substring(offset, end).split(';').first.trim(), radix: 16);
+      if (size == null || size < 0) throw const FormatException('malformed chunk size');
+      if (size == 0) return out.toString();
+      final from = end + 2;
+      final to = from + size;
+      if (to + 2 > body.length || body.substring(to, to + 2) != '\r\n') {
+        throw const FormatException('truncated chunk');
+      }
+      out.write(body.substring(from, to));
+      offset = to + 2;
+    }
+    throw const FormatException('chunk terminator is missing');
+  }
+
   static Future<void> _socksConnect(Socket socket, _Reader reader, String host, int port) async {
     socket.add(const [5, 1, 0]);
     await socket.flush();
@@ -97,19 +164,12 @@ class IpLookup {
     final ip = InternetAddress.tryParse(host);
     final request = <int>[5, 1, 0];
     if (ip != null && ip.type == InternetAddressType.IPv4) {
-      request
-        ..add(1)
-        ..addAll(ip.rawAddress);
+      request..add(1)..addAll(ip.rawAddress);
     } else {
       final name = ascii.encode(host);
-      request
-        ..add(3)
-        ..add(name.length)
-        ..addAll(name);
+      request..add(3)..add(name.length)..addAll(name);
     }
-    request
-      ..add((port >> 8) & 0xff)
-      ..add(port & 0xff);
+    request..add((port >> 8) & 0xff)..add(port & 0xff);
     socket.add(request);
     await socket.flush();
 
@@ -117,9 +177,9 @@ class IpLookup {
     if (head[0] != 5 || head[1] != 0) throw SocketException('SOCKS5 CONNECT failed (${head[1]})');
     switch (head[3]) {
       case 1:
-        await reader.take(4 + 2);
+        await reader.take(6);
       case 4:
-        await reader.take(16 + 2);
+        await reader.take(18);
       case 3:
         await reader.take((await reader.take(1))[0] + 2);
       default:
@@ -128,22 +188,12 @@ class IpLookup {
   }
 }
 
-/// Reads a socket in pieces: the SOCKS5 handshake a few bytes at a time, then the rest.
 class _Reader {
   _Reader(Socket socket) {
     _sub = socket.listen(
-      (data) {
-        _buf.addAll(data);
-        _wake();
-      },
-      onError: (Object _) {
-        _done = true;
-        _wake();
-      },
-      onDone: () {
-        _done = true;
-        _wake();
-      },
+      (data) { _buf.addAll(data); _wake(); },
+      onError: (Object _) { _done = true; _wake(); },
+      onDone: () { _done = true; _wake(); },
       cancelOnError: true,
     );
   }
@@ -156,8 +206,7 @@ class _Reader {
 
   void _wake() {
     final w = _waiter;
-    if (w == null) return;
-    if (_done || _buf.length >= _want) {
+    if (w != null && (_done || _buf.length >= _want)) {
       _waiter = null;
       w.complete();
     }

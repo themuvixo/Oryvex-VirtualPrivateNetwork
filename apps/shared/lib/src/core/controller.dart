@@ -106,7 +106,7 @@ class CoreController extends ChangeNotifier {
   Timer? _attemptTimer;
   bool _switching = false;
 
-  // --- SSTP (Windows) -----------------------------------------------------------------------
+  // --- SSTP (Windows and Android) -------------------------------------------------------------
 
   /// The VPN Gate servers SSTP can dial: the bundled list until a refresh replaces it.
   List<SstpServer> sstpServers = bundledSstpServers;
@@ -142,8 +142,8 @@ class CoreController extends ChangeNotifier {
 
   bool get isActive => state != CoreState.stopped;
 
-  /// SSTP rides Windows' own VPN client, so only the Windows app offers it.
-  bool get supportsSstp => !backend.isAndroid && SstpClient.supported;
+  /// Windows uses RasClient; Android uses the integrated MS-SSTP engine in OryvexVpnService.
+  bool get supportsSstp => backend.isAndroid || SstpClient.supported;
 
   /// Auto is picking the protocol for this connection.
   bool get isAuto => settings.protocol == 'auto' && !settings.torOnly;
@@ -194,6 +194,7 @@ class CoreController extends ChangeNotifier {
     if (st.running) {
       // Android: the service kept the core running while the UI was closed. Pick it back up.
       _run = st.run;
+      if (backend.isAndroid && settings.protocol == 'sstp') activeProtocol = 'sstp';
       state = CoreState.connecting;
       vpnUp = st.vpnUp;
       plan.begin();
@@ -382,6 +383,16 @@ class CoreController extends ChangeNotifier {
 
   Future<void> stop() async {
     if (state == CoreState.stopped || state == CoreState.stopping) return;
+    if (activeProtocol == 'sstp' && backend.isAndroid) {
+      _cancelRequested = true;
+      state = CoreState.stopping;
+      _notify();
+      await backend.stop();
+      if (state == CoreState.stopping) _markStopped();
+      unawaited(refreshIp());
+      _notify();
+      return;
+    }
     if (activeProtocol == 'sstp') {
       // Hanging up also ends a dial that is still in progress.
       _cancelRequested = true;
@@ -467,7 +478,21 @@ class CoreController extends ChangeNotifier {
       case LineEvent(:final line):
         _ingest(line);
       case ExitEvent(:final code):
-        if (state == CoreState.stopped || activeProtocol == 'sstp') break;
+        if (state == CoreState.stopped) break;
+        if (activeProtocol == 'sstp' && backend.isAndroid) {
+          final wasConnected = state == CoreState.connected;
+          final wasStopping = state == CoreState.stopping;
+          _markStopped();
+          if (!wasStopping && lastError == null) {
+            lastError = wasConnected
+                ? 'The SSTP connection dropped. Connect again to choose a relay.'
+                : 'SSTP could not connect. Open Activity for the failure reason.';
+            if (wasConnected) _gui('[gui] sstp: connection dropped');
+          }
+          unawaited(refreshIp());
+          break;
+        }
+        if (activeProtocol == 'sstp') break;
         if (isAuto && !_switching && state == CoreState.connecting) {
           // The attempt died before it connected: Auto moves on instead of stopping.
           unawaited(_failover(_run, code != null && code != 0 ? 'the core exited with code $code' : 'the core exited'));
@@ -649,8 +674,8 @@ class CoreController extends ChangeNotifier {
     if (pick.isEmpty) {
       // A server typed in by hand, or one a refresh no longer lists: try it first anyway.
       final parts = chosen.split(':');
-      final port = parts.length > 1 ? int.tryParse(parts[1]) : null;
-      pick.add(SstpServer(host: parts.first, port: port ?? 443));
+      final manual = SstpServer.parseAddress(chosen);
+      if (manual != null) pick.add(manual);
     }
     return [...pick, ...ranked.where((x) => x.address != chosen)];
   }
@@ -689,7 +714,7 @@ class CoreController extends ChangeNotifier {
     _lastUpBytes = null;
     _lastDownBytes = null;
     _lastStatsAt = null;
-    plan = ConnectionPlan.of(settings, android: false)..begin();
+    plan = ConnectionPlan.of(settings, android: backend.isAndroid)..begin();
     state = CoreState.starting;
     _notify();
 
@@ -710,6 +735,21 @@ class CoreController extends ChangeNotifier {
 
       const tries = 6;
       final candidates = _sstpCandidates().take(tries).toList();
+      if (backend.isAndroid) {
+        final server = candidates.isNotEmpty ? candidates.first : null;
+        if (server == null || !server.isValid) {
+          throw BackendException('No valid VPN Gate SSTP relay is available. Refresh the server list.');
+        }
+        settings.sstpServer = server.address;
+        _gui('[gui] sstp: dialing ${server.address} (${server.country.isEmpty ? 'VPN Gate' : server.country})');
+        await backend.start(settings.copy(), run);
+        if (_cancelRequested || _run != run) return;
+        sstpConnected = server;
+        if (state != CoreState.connected) state = CoreState.connecting;
+        _busy = false;
+        _notify();
+        return;
+      }
       for (final server in candidates) {
         if (_cancelRequested || _run != run) break;
         _gui('[gui] sstp: dialing ${server.address} (${server.country.isEmpty ? 'VPN Gate' : server.country})');
@@ -803,11 +843,24 @@ class CoreController extends ChangeNotifier {
     final seq = ++_ipSeq;
     ipLoading = true;
     _notify();
-    final viaCore = state == CoreState.connected && activeProtocol != 'sstp';
-    final info = await IpLookup.lookup(socksPort: viaCore ? settings.socksPort : null);
+    final viaTunnel = state == CoreState.connected;
+    final info = await IpLookup.lookup(
+      socksPort: IpLookup.socksPortForRoute(
+        tunnelConnected: viaTunnel,
+        activeProtocol: activeProtocol,
+        configuredSocksPort: settings.socksPort,
+      ),
+      throughTunnel: viaTunnel,
+    );
     if (_disposed || seq != _ipSeq) return;
     ipLoading = false;
-    if (info != null) ipInfo = info;
+    if (info != null) {
+      ipInfo = info;
+      _gui('[gui] ip: ${info.viaTunnel ? "tunnel" : "direct"} egress is ${info.ip}${info.countryCode.isEmpty ? "" : " (${info.countryCode})"}');
+    } else {
+      // Keep a previous successful value; a transient lookup failure must not erase it.
+      _gui('[gui] ip: HTTPS lookup failed or timed out; keeping the last successful result');
+    }
     _notify();
   }
 

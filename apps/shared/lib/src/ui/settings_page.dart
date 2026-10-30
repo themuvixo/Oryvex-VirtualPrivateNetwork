@@ -38,6 +38,17 @@ class SettingsPage extends StatelessWidget {
                   const PageTitle(eyebrow: 'Make it yours', title: 'Settings'),
                   _Dirty(controller: c),
                   OxSection(
+                    title: 'Appearance',
+                    children: [
+                      SwitchRow(
+                        title: 'Dark mode',
+                        subtitle: 'Use a dark interface across OryvexVPN',
+                        value: s.darkTheme,
+                        onChanged: (v) => set((x) => x.darkTheme = v),
+                      ),
+                    ],
+                  ),
+                  OxSection(
                     title: 'Connection',
                     footer: 'Changes apply the next time you connect.',
                     children: [
@@ -98,18 +109,18 @@ class SettingsPage extends StatelessWidget {
                       children: [
                         SwitchRow(
                           title: 'Whole-device VPN',
-                          subtitle: 'Off means proxy only',
-                          value: s.vpnMode,
-                          onChanged: (v) => set((x) => x.vpnMode = v),
+                          subtitle: s.protocol == 'sstp' ? 'SSTP always uses the Android VPN service' : 'Off means proxy only',
+                          value: s.protocol == 'sstp' || s.vpnMode,
+                          onChanged: s.protocol == 'sstp' ? null : (v) => set((x) => x.vpnMode = v),
                         ),
-                        SwitchRow(
+                        if (s.protocol != 'sstp') SwitchRow(
                           title: 'Fake DNS',
                           subtitle: 'Resolve names through the tunnel, no UDP needed',
                           value: s.fakeDns,
                           enabled: s.vpnMode,
                           onChanged: (v) => set((x) => x.fakeDns = v),
                         ),
-                        SwitchRow(
+                        if (s.protocol != 'sstp') SwitchRow(
                           title: 'Tunnel IPv6',
                           subtitle: 'Keeps IPv6 traffic from leaking around the VPN',
                           value: s.vpnIpv6,
@@ -253,7 +264,7 @@ class _Dirty extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
                 child: Row(
                   children: [
-                    const Icon(Icons.tune_rounded, color: Ox.warn, size: 20),
+                    Icon(Icons.tune_rounded, color: Ox.warn, size: 20),
                     const SizedBox(width: 12),
                     Expanded(child: Text('Reconnect to use the new settings.', style: Ox.body(15))),
                     Pressable(

@@ -165,7 +165,7 @@ class _LogsPageState extends State<LogsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.receipt_long_rounded, size: 34, color: Ox.tertiary),
+              Icon(Icons.receipt_long_rounded, size: 34, color: Ox.tertiary),
               const SizedBox(height: 12),
               Text(_filter == 'problems' ? 'No problems so far.' : 'Nothing yet.', style: Ox.headline(22, weight: FontWeight.w600)),
               const SizedBox(height: 6),
@@ -248,7 +248,7 @@ class _LogsPageState extends State<LogsPage> {
       padding: const EdgeInsets.symmetric(vertical: 2.5),
       child: Text.rich(
         TextSpan(children: [
-          TextSpan(text: '${l.clock}  ', style: const TextStyle(color: Ox.tertiary)),
+          TextSpan(text: '${l.clock}  ', style: TextStyle(color: Ox.tertiary)),
           TextSpan(
             text: '${l.levelTag.padRight(5)} ',
             style: TextStyle(color: _color(l.level), fontWeight: FontWeight.w700),
@@ -257,7 +257,7 @@ class _LogsPageState extends State<LogsPage> {
             text: l.text,
             style: TextStyle(color: l.kind == LogKind.success ? Ox.blueSoft : _color(l.level)),
           ),
-          if (l.repeat > 1) TextSpan(text: '  ×${l.repeat}', style: const TextStyle(color: Ox.tertiary)),
+          if (l.repeat > 1) TextSpan(text: '  ×${l.repeat}', style: TextStyle(color: Ox.tertiary)),
         ]),
         style: Ox.code(13.5, height: 1.42),
       ),
@@ -283,7 +283,7 @@ class _ToolButton extends StatelessWidget {
         child: Container(
           width: 40,
           height: 40,
-          decoration: const BoxDecoration(color: Ox.tile, shape: BoxShape.circle),
+          decoration: BoxDecoration(color: Ox.tile, shape: BoxShape.circle),
           child: Icon(icon, size: 19, color: Ox.blue),
         ),
       ),

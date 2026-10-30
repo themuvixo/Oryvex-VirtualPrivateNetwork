@@ -59,13 +59,13 @@ class ConnectionPlan {
 
   factory ConnectionPlan.of(CoreSettings s, {required bool android}) {
     final steps = <ConnStep>[];
-    if (s.protocol == 'sstp' && !s.torOnly && !android) {
-      // SSTP runs in Windows itself, not in the core: the controller writes these lines.
+    if (s.protocol == 'sstp' && !s.torOnly) {
+      // SSTP runs in the native platform VPN service, not the OryvexCore process.
       steps.add(ConnStep('servers', 'Pick a server',
           starts: const ['sstp: refreshing'], finishes: const ['sstp: list ready'], idle: 'VPN Gate servers'));
       steps.add(ConnStep('tunnel', 'SSTP handshake',
-          starts: const ['sstp: dialing'], finishes: const ['sstp: connected'], idle: 'Windows SSTP client'));
-      steps.add(ConnStep('ready', 'Online', idle: 'Every app on this PC'));
+          starts: const ['sstp: dialing'], finishes: const ['sstp: connected'], idle: android ? 'Android MS-SSTP engine' : 'Windows SSTP client'));
+      steps.add(ConnStep('ready', 'Online', idle: android ? 'Every app on this phone' : 'Every app on this PC'));
       return ConnectionPlan._(steps, s.socksPort);
     }
     if (s.torOnly) {
@@ -174,6 +174,7 @@ class ConnectionPlan {
   /// The port check skips the throwaway listener gool opens while it registers.
   bool isReadyLine(String m) {
     final l = m.toLowerCase();
+    if (steps.any((x) => x.starts.contains('sstp: dialing')) && l.contains('sstp: vpn established')) return true;
     return l.contains('listening on') && !l.contains('http proxy') && m.trimRight().endsWith(':$socksPort');
   }
 

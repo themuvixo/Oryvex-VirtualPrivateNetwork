@@ -91,8 +91,6 @@ jobs:
   android-tun:
     name: Android VPN engine
     runs-on: ubuntu-latest
-    # Never let the optional VPN engine block the APKs: without it the app runs proxy-only.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,7 +113,7 @@ jobs:
           path: |
             apps/android-src/android/app/src/main/jniLibs
             apps/android-src/android/app/src/main/java/hev/htproxy/TProxyService.java
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ------------------------------------------------------------------
   # Flutter Android app: per-ABI APKs and one universal APK.
@@ -151,7 +149,6 @@ jobs:
           merge-multiple: true
 
       - name: Fetch VPN engine
-        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: native-android-tun
@@ -163,7 +160,8 @@ jobs:
           for abi in arm64-v8a armeabi-v7a x86_64; do
             test -f "android/app/src/main/jniLibs/$abi/liboryvexcore_cli.so" || { echo "missing core for $abi"; exit 1; }
           done
-          cat android/app/src/main/java/hev/htproxy/TProxyService.java || echo "no VPN engine binding: proxy-only build"
+          test -f android/app/src/main/java/hev/htproxy/TProxyService.java || { echo "missing hev-socks5-tunnel binding"; exit 1; }
+          ls -l android/app/src/main/java/hev/htproxy/TProxyService.java
 
       - name: Release signing (optional)
         env:
@@ -189,10 +187,10 @@ jobs:
         run: bash tool/bootstrap.sh
 
       - name: Unit tests
-        continue-on-error: true
         run: |
           (cd ../shared && flutter pub get && flutter test)
           flutter test
+          (cd android && ./gradlew :app:testDebugUnitTest)
 
       - name: Build APKs
         run: |
@@ -241,6 +239,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          # The Go tools are downloaded by the build scripts, not managed by a root go.mod.
+          cache: false
 
       - uses: lukka/get-cmake@latest
 
@@ -261,6 +261,7 @@ jobs:
         shell: bash
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
+          python -m unittest discover -s scripts/tests -v
           python scripts/third-party-notices.py --target x86_64-pc-windows-msvc --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Stage
@@ -389,8 +390,7 @@ jobs:
           cp "$cargo_target_dir/${{ matrix.target }}/release/OryvexVPNLite.exe" "$out/"
           cp oryvexcore/run-oryvexcore.bat "$out/"
           cp LICENSE "$out/LICENSES/oryvexcore-LICENSE.txt"
-          (cd oryvexcore && python scripts/third-party-notices.py --target ${{ matrix.target }} --output "../$out/LICENSES/THIRD-PARTY-NOTICES.txt") \
-            || echo "third-party notices skipped"
+          (cd oryvexcore && python scripts/third-party-notices.py --target ${{ matrix.target }} --output "../$out/LICENSES/THIRD-PARTY-NOTICES.txt")
           cat > "$out/README.txt" <<'TXT'
           OryvexVPN Lite - for Windows 7, 8, 8.1, 10 and 11
 

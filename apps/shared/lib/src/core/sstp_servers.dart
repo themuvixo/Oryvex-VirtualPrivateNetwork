@@ -27,6 +27,23 @@ class SstpServer {
   /// when it is not 443.
   String get address => port == 443 ? host : '$host:$port';
 
+  static final _hostPattern = RegExp(
+    r'^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+opengw\.net$',
+    caseSensitive: false,
+  );
+
+  bool get isValid => _hostPattern.hasMatch(host) && port > 0 && port <= 65535;
+
+  /// Parses VPN Gate's required DNS hostname and optional non-default port. Numeric IPs,
+  /// schemes, credentials, and non-VPN-Gate hosts are intentionally rejected.
+  static SstpServer? parseAddress(String address) {
+    final match = RegExp(r'^([^:/?#@\s]+)(?::(\d{1,5}))?$').firstMatch(address.trim());
+    if (match == null || !_hostPattern.hasMatch(match.group(1)!)) return null;
+    final port = int.tryParse(match.group(2) ?? '') ?? 443;
+    if (port < 1 || port > 65535) return null;
+    return SstpServer(host: match.group(1)!.toLowerCase(), port: port);
+  }
+
   /// "Japan · public-vpn-153.opengw.net"
   String get label => country.isEmpty ? host : '$country · $host';
 
@@ -44,13 +61,13 @@ class SstpServer {
   static SstpServer? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final host = raw['host'];
-    if (host is! String || host.isEmpty) return null;
+    if (host is! String || !_hostPattern.hasMatch(host)) return null;
     final port = raw['port'];
     final mbps = raw['mbps'];
     final ping = raw['ping'];
     final score = raw['score'];
-    return SstpServer(
-      host: host,
+    final server = SstpServer(
+      host: host.toLowerCase(),
       port: port is int && port > 0 && port < 65536 ? port : 443,
       ip: raw['ip'] is String ? raw['ip'] as String : '',
       country: raw['country'] is String ? raw['country'] as String : '',
@@ -59,6 +76,7 @@ class SstpServer {
       ping: ping is int ? ping : 0,
       score: score is int ? score : 0,
     );
+    return server.isValid ? server : null;
   }
 
   static String encodeList(List<SstpServer> servers) => jsonEncode([for (final s in servers) s.toJson()]);

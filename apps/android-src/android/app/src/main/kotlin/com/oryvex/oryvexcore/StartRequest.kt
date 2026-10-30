@@ -12,6 +12,8 @@ data class StartRequest(
     val fakeDns: Boolean,
     val ipv6: Boolean,
     val runId: Long,
+    val protocol: String = "auto",
+    val sstpAddress: String? = null,
 ) {
     fun toIntent(intent: Intent): Intent = intent
         .putStringArrayListExtra("args", ArrayList(args))
@@ -20,6 +22,8 @@ data class StartRequest(
         .putExtra("fakeDns", fakeDns)
         .putExtra("ipv6", ipv6)
         .putExtra("runId", runId)
+        .putExtra("protocol", protocol)
+        .putExtra("sstpAddress", sstpAddress)
 
     fun save(ctx: Context) {
         val json = JSONObject()
@@ -28,6 +32,8 @@ data class StartRequest(
             .put("socksPort", socksPort)
             .put("fakeDns", fakeDns)
             .put("ipv6", ipv6)
+            .put("protocol", protocol)
+            .put("sstpAddress", sstpAddress)
         ctx.getSharedPreferences("oryvexcore", Context.MODE_PRIVATE)
             .edit().putString("last", json.toString()).apply()
     }
@@ -42,6 +48,8 @@ data class StartRequest(
                 i.getBooleanExtra("fakeDns", true),
                 i.getBooleanExtra("ipv6", true),
                 i.getLongExtra("runId", System.currentTimeMillis()),
+                i.getStringExtra("protocol") ?: "auto",
+                i.getStringExtra("sstpAddress"),
             )
         }
 
@@ -58,6 +66,8 @@ data class StartRequest(
                 j.optBoolean("fakeDns", true),
                 j.optBoolean("ipv6", true),
                 System.currentTimeMillis(),
+                j.optString("protocol", "auto"),
+                j.optString("sstpAddress").takeIf { it.isNotEmpty() },
             )
         } catch (_: Throwable) {
             null

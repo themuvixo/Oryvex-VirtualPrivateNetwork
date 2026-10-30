@@ -31,6 +31,7 @@ Future<void> runOryvex(CoreBackend backend) async {
       systemNavigationBarContrastEnforced: false,
     ));
   }
+  Ox.setDarkMode(true);
   final controller = CoreController(backend);
   await controller.init();
   runApp(OryvexApp(controller: controller));
@@ -69,13 +70,35 @@ class _OryvexAppState extends State<OryvexApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: kAppName,
-      debugShowCheckedModeBanner: false,
-      theme: buildOxTheme(),
-      darkTheme: buildOxTheme(),
-      themeMode: ThemeMode.light,
-      home: Shell(controller: widget.controller),
+    return ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, _) {
+        final dark = widget.controller.settings.darkTheme;
+        Ox.setDarkMode(dark);
+        if (Platform.isAndroid) {
+          SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+            statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+            systemNavigationBarContrastEnforced: false,
+          ));
+        }
+        final selectedTheme = buildOxTheme(dark: dark);
+        return MaterialApp(
+          title: kAppName,
+          debugShowCheckedModeBanner: false,
+          // Build one selected palette and pin it to both platform brightnesses. Ox is a
+          // shared token set used by custom-painted widgets, so building separate light/dark
+          // themes here would leave the last palette built active for both modes.
+          theme: selectedTheme,
+          darkTheme: selectedTheme,
+          themeMode: ThemeMode.light,
+          home: Shell(controller: widget.controller),
+        );
+      },
     );
   }
 }
@@ -220,12 +243,12 @@ class _TopNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const tabW = 88.0;
+    final tabW = width < 500 ? 64.0 : 88.0;
     return _Glass(
       child: Container(
         height: topInset + Ox.navHeight,
         padding: EdgeInsets.only(top: topInset, left: 18, right: 14),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Ox.nav,
           border: Border(bottom: BorderSide(color: Ox.hairlineSoft, width: 0.6)),
         ),
@@ -235,10 +258,8 @@ class _TopNav extends StatelessWidget {
               child: Row(
                 children: [
                   const OxMark(size: 22),
-                  if (width >= 600) ...[
-                    const SizedBox(width: 9),
-                    const Flexible(child: OxWordmark(size: 17)),
-                  ],
+                  const SizedBox(width: 9),
+                  Flexible(child: OxWordmark(size: width < 420 ? 14 : 17)),
                 ],
               ),
             ),

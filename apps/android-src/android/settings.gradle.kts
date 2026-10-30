@@ -22,4 +22,5 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.1.0" apply false
 }
 
-include(":app")
+include(":app", ":sstp-engine")
+project(":sstp-engine").projectDir = file("../sstp-engine")

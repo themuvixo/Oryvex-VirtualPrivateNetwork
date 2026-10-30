@@ -9,7 +9,7 @@ class CoreSettings {
   /// auto | wg | masque | mim | gool | sstp.
   ///
   /// auto tries WireGuard, then MASQUE, then MASQUE², then Gool, and keeps the first one that
-  /// connects. sstp (Windows) dials a VPN Gate server with Windows' own SSTP client.
+  /// connects. SSTP uses Windows native dialing or the integrated Android engine.
   String protocol = 'auto';
 
   /// The VPN Gate server SSTP dials (its address, host or host:port). Empty: the best one.
@@ -48,6 +48,9 @@ class CoreSettings {
   String dns = '';
   String exitLoc = '';
   String peer = '';
+
+  /// Dark appearance is the first-launch default.
+  bool darkTheme = true;
 
   /// Android: route the whole phone through the core with a VpnService.
   bool vpnMode = true;
@@ -92,6 +95,7 @@ class CoreSettings {
         'dns': dns,
         'exitLoc': exitLoc,
         'peer': peer,
+        'darkTheme': darkTheme,
         'vpnMode': vpnMode,
         'fakeDns': fakeDns,
         'vpnIpv6': vpnIpv6,
@@ -149,6 +153,7 @@ class CoreSettings {
     s.dns = str('dns', s.dns);
     s.exitLoc = str('exitLoc', s.exitLoc);
     s.peer = str('peer', s.peer);
+    s.darkTheme = flag('darkTheme', s.darkTheme);
     s.vpnMode = flag('vpnMode', s.vpnMode);
     s.fakeDns = flag('fakeDns', s.fakeDns);
     s.vpnIpv6 = flag('vpnIpv6', s.vpnIpv6);
@@ -246,7 +251,7 @@ class Choices {
     'wg': 'Classic WireGuard. Fastest where UDP gets through.',
     'gool': 'WireGuard carried inside MASQUE, for a different exit address.',
     'mim': 'MASQUE carried inside MASQUE, for a different exit address.',
-    'sstp': 'A free VPN Gate server over Windows\' built-in SSTP. Changes your country, covers every app.',
+    'sstp': 'VPN Gate MS-SSTP using the relay DNS hostname and TCP port.',
   };
 
   static const transports = <String, String>{'h3': 'HTTP/3', 'h2': 'HTTP/2'};

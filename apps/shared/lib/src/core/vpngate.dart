@@ -95,8 +95,9 @@ class VpnGateDirectory {
       if (m == null) continue;
       final host = m.group(1)!.toLowerCase();
       final port = int.tryParse(m.group(2) ?? '') ?? 443;
-      if (port <= 0 || port > 65535) continue;
-      final key = '$host:$port';
+      final server = SstpServer(host: host, port: port);
+      if (!server.isValid) continue;
+      final key = server.address;
       if (!seen.add(key)) continue;
 
       final cells = row.split(_cellSplit).skip(1).map(_text).toList();

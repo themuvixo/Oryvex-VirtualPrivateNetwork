@@ -30,9 +30,10 @@ class SstpClient {
   /// it did not connect.
   static Future<String?> connect(SstpServer server, {Duration timeout = const Duration(seconds: 35)}) async {
     if (!supported) return 'SSTP needs Windows.';
+    if (!server.isValid) return 'VPN Gate requires a valid xxx.opengw.net hostname and port.';
     await disconnect();
 
-    final address = server.address.replaceAll("'", '');
+    final address = server.address;
     final name = entryName.replaceAll("'", "''");
     final script = [
       r"$ErrorActionPreference = 'Stop'",
