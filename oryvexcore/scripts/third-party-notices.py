@@ -476,8 +476,8 @@ def main():
     parser.add_argument("--features", default="", help="the features of the build, e.g. tor")
     parser.add_argument(
         "--manifest-path",
-        default=os.path.join(here, "oryvexcore", "Cargo.toml"),
-        help="oryvexcore's Cargo.toml (default: oryvexcore/Cargo.toml beside this script)",
+        default=os.path.abspath(os.path.join(here, "..", "Cargo.toml")),
+        help="oryvexcore's Cargo.toml (default: ../Cargo.toml beside this script)",
     )
     parser.add_argument("--output", required=True, help="the file to write")
     args = parser.parse_args()
