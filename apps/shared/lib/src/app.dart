@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'core/backend.dart';
 import 'core/controller.dart';
+import 'core/internet_check.dart';
 import 'ui/home_page.dart';
 import 'ui/logs_page.dart';
 import 'ui/settings_page.dart';
@@ -52,14 +55,44 @@ class _OryvexAppState extends State<OryvexApp> with WindowListener {
   final SystemTray _systemTray = SystemTray();
   bool _trayReady = false;
   bool _closeDialogOpen = false;
+  bool _offlineDialogOpen = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_checkInternetAndShowDialog()));
     if (Platform.isWindows) {
       windowManager.addListener(this);
       unawaited(_initTray());
     }
+  }
+
+  Future<void> _checkInternetAndShowDialog() async {
+    if (!mounted || _offlineDialogOpen) return;
+    final online = await hasInternetAccess();
+    if (!mounted || online || _offlineDialogOpen) return;
+    final context = _navigatorKey.currentContext;
+    if (context == null) return;
+
+    _offlineDialogOpen = true;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Internet connection unavailable',
+      barrierColor: Colors.black.withValues(alpha: 0.58),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (context, animation, secondaryAnimation) => _OfflineDialog(
+        onRetry: hasInternetAccess,
+      ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(scale: Tween<double>(begin: 0.94, end: 1).animate(curved), child: child),
+        );
+      },
+    );
+    _offlineDialogOpen = false;
   }
 
   Future<void> _initTray() async {
@@ -170,6 +203,97 @@ class _OryvexAppState extends State<OryvexApp> with WindowListener {
   }
 }
 
+class _OfflineDialog extends StatefulWidget {
+  const _OfflineDialog({required this.onRetry});
+
+  final Future<bool> Function() onRetry;
+
+  @override
+  State<_OfflineDialog> createState() => _OfflineDialogState();
+}
+
+class _OfflineDialogState extends State<_OfflineDialog> {
+  bool _checking = false;
+  String? _status;
+
+  Future<void> _retry() async {
+    if (_checking) return;
+    setState(() {
+      _checking = true;
+      _status = null;
+    });
+    final online = await widget.onRetry();
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _status = online ? null : 'Still offline. Check your connection and try again.';
+    });
+    if (online) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxWidth: 410),
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Ox.card,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Ox.hairlineSoft),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.38), blurRadius: 48, offset: const Offset(0, 20))],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(color: Ox.danger.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(15)),
+                child: const Icon(Icons.wifi_off_rounded, color: Ox.danger, size: 25),
+              ),
+              const SizedBox(height: 18),
+              Text('No internet connection', style: Ox.headline(22)),
+              const SizedBox(height: 8),
+              Text(
+                'OryvexVPN can’t reach the internet right now. Check your Wi-Fi or mobile data, then try again.',
+                style: Ox.body(14, color: Ox.secondary),
+              ),
+              if (_status != null) ...[
+                const SizedBox(height: 12),
+                Text(_status!, style: Ox.body(13, color: Ox.warn)),
+              ],
+              const SizedBox(height: 22),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _checking ? null : () => Navigator.of(context).pop(),
+                    child: Text('Continue offline', style: Ox.body(14, color: Ox.secondary, weight: FontWeight.w600)),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _checking ? null : _retry,
+                    icon: _checking
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.refresh_rounded, size: 18),
+                    label: Text(_checking ? 'Checking…' : 'Try again'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CloseChoiceDialog extends StatelessWidget {
   const _CloseChoiceDialog({required this.trayReady});
   final bool trayReady;
@@ -191,7 +315,7 @@ class _CloseChoiceDialog extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(color: Ox.card, borderRadius: BorderRadius.circular(22), border: Border.all(color: Ox.hairlineSoft), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 48, offset: const Offset(0, 20))]),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Close OryvexVPN?', style: Ox.heading(22)),
+            Text('Close OryvexVPN?', style: Ox.headline(22)),
             const SizedBox(height: 7),
             Text('Choose what happens to your connection.', style: Ox.body(14, color: Ox.secondary)),
             const SizedBox(height: 18),
@@ -223,7 +347,7 @@ class _CloseOption extends StatelessWidget {
           const SizedBox(height: 3),
           Text(subtitle, style: Ox.body(12, color: Ox.secondary)),
         ])),
-        const Icon(Icons.chevron_right_rounded, color: Ox.secondary, size: 19),
+        Icon(Icons.chevron_right_rounded, color: Ox.secondary, size: 19),
       ]),
     ),
   );
@@ -359,7 +483,7 @@ class _TopNav extends StatelessWidget {
     final bar = _Glass(
       child: Container(
         height: topInset + Ox.navHeight,
-        padding: EdgeInsets.only(top: topInset, left: 18, right: 14),
+        padding: EdgeInsets.only(top: topInset, left: 18, right: Platform.isWindows ? 0 : 14),
         decoration: BoxDecoration(color: Ox.nav, border: Border(bottom: BorderSide(color: Ox.hairlineSoft, width: 0.6))),
         child: Row(children: [
           Expanded(child: Row(children: [const OxMark(size: 22), const SizedBox(width: 9), Flexible(child: OxWordmark(size: width < 420 ? 14 : 17))])),
@@ -402,7 +526,12 @@ class _TopNav extends StatelessWidget {
                 listenable: controller,
                 builder: (context, _) => StatusPill(state: controller.state, vpnUp: controller.vpnUp, dense: true, showLabel: width >= 600),
               ),
-              if (Platform.isWindows) ...[const SizedBox(width: 12), const _WindowControls()],
+              if (Platform.isWindows) ...[
+                const SizedBox(width: 12),
+                Container(width: 1, height: 20, color: Ox.hairlineSoft),
+                const SizedBox(width: 6),
+                const _WindowControls(),
+              ],
             ]),
           )),
         ]),
@@ -418,45 +547,164 @@ class _WindowControls extends StatefulWidget {
   State<_WindowControls> createState() => _WindowControlsState();
 }
 
-class _WindowControlsState extends State<_WindowControls> {
+/// OryvexVPN's own caption buttons. The native Windows title bar is hidden, so these replace
+/// it: flush with the window edge, full bar height, hand-drawn hairline glyphs, a red close.
+/// The maximise glyph follows the real window state, and everything dims while unfocused.
+class _WindowControlsState extends State<_WindowControls> with WindowListener {
   bool _maximized = false;
+  bool _focused = true;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    unawaited(_syncMaximized());
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  Future<void> _syncMaximized() async {
+    final value = await windowManager.isMaximized();
+    if (mounted && value != _maximized) setState(() => _maximized = value);
+  }
+
+  @override
+  void onWindowMaximize() => setState(() => _maximized = true);
+  @override
+  void onWindowUnmaximize() => setState(() => _maximized = false);
+  @override
+  void onWindowRestore() => unawaited(_syncMaximized());
+  @override
+  void onWindowFocus() => setState(() => _focused = true);
+  @override
+  void onWindowBlur() => setState(() => _focused = false);
+
   Future<void> _toggleMaximize() async {
     if (await windowManager.isMaximized()) {
       await windowManager.unmaximize();
-      if (mounted) setState(() => _maximized = false);
     } else {
       await windowManager.maximize();
-      if (mounted) setState(() => _maximized = true);
     }
+    await _syncMaximized();
   }
+
   @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    _WindowButton(icon: Icons.remove_rounded, label: 'Minimize', onPressed: windowManager.minimize),
-    _WindowButton(icon: _maximized ? Icons.filter_none_rounded : Icons.crop_square_rounded, label: _maximized ? 'Restore' : 'Maximize', onPressed: _toggleMaximize),
-    _WindowButton(icon: Icons.close_rounded, label: 'Close', onPressed: windowManager.close, close: true),
-  ]);
+  Widget build(BuildContext context) => AnimatedOpacity(
+    duration: Ox.fast,
+    opacity: _focused ? 1 : 0.55,
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      _CaptionButton(glyph: _Glyph.minimize, label: 'Minimize', onPressed: windowManager.minimize),
+      _CaptionButton(
+        glyph: _maximized ? _Glyph.restore : _Glyph.maximize,
+        label: _maximized ? 'Restore down' : 'Maximize',
+        onPressed: _toggleMaximize,
+      ),
+      // close() goes through setPreventClose, so the "Close OryvexVPN?" dialog still asks.
+      _CaptionButton(glyph: _Glyph.close, label: 'Close', onPressed: windowManager.close, close: true),
+    ]),
+  );
 }
 
-class _WindowButton extends StatelessWidget {
-  const _WindowButton({required this.icon, required this.label, required this.onPressed, this.close = false});
-  final IconData icon;
+enum _Glyph { minimize, maximize, restore, close }
+
+class _CaptionButton extends StatefulWidget {
+  const _CaptionButton({required this.glyph, required this.label, required this.onPressed, this.close = false});
+  final _Glyph glyph;
   final String label;
   final VoidCallback onPressed;
   final bool close;
+
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: label,
-    child: SizedBox(width: 34, height: 34, child: Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(9),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(9),
-        hoverColor: close ? Ox.danger : Ox.tileHi,
-        onTap: onPressed,
-        child: Icon(icon, size: 16, color: Ox.secondary),
+  State<_CaptionButton> createState() => _CaptionButtonState();
+}
+
+class _CaptionButtonState extends State<_CaptionButton> {
+  static const _closeRed = Color(0xFFE81123); // the Windows close-button red
+  bool _hover = false;
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color fill;
+    if (widget.close) {
+      fill = _down ? const Color(0xFFF1707A) : (_hover ? _closeRed : Colors.transparent);
+    } else {
+      fill = _down ? Ox.text.withValues(alpha: 0.14) : (_hover ? Ox.text.withValues(alpha: 0.08) : Colors.transparent);
+    }
+    final ink = widget.close && (_hover || _down) ? Colors.white : Ox.text;
+    return Semantics(
+      button: true,
+      label: widget.label,
+      child: Tooltip(
+        message: widget.label,
+        waitDuration: const Duration(milliseconds: 600),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hover = true),
+          onExit: (_) => setState(() { _hover = false; _down = false; }),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (_) => setState(() => _down = true),
+            onTapCancel: () => setState(() => _down = false),
+            onTap: () {
+              setState(() => _down = false);
+              widget.onPressed();
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              width: 46,
+              height: Ox.navHeight,
+              color: fill,
+              alignment: Alignment.center,
+              child: CustomPaint(size: const Size(10, 10), painter: _GlyphPainter(widget.glyph, ink)),
+            ),
+          ),
+        ),
       ),
-    )),
-  );
+    );
+  }
+}
+
+/// Hairline caption glyphs, drawn rather than taken from an icon font so they stay crisp at
+/// every scale and match the 1 px weight of the Windows 11 caption.
+class _GlyphPainter extends CustomPainter {
+  const _GlyphPainter(this.glyph, this.color);
+  final _Glyph glyph;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.05
+      ..isAntiAlias = true;
+    final w = size.width, h = size.height;
+    switch (glyph) {
+      case _Glyph.minimize:
+        canvas.drawLine(Offset(0, h / 2), Offset(w, h / 2), p);
+      case _Glyph.maximize:
+        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0.5, 0.5, w - 1, h - 1), const Radius.circular(1.5)), p);
+      case _Glyph.restore:
+        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0.5, 2.5, w - 3, h - 3), const Radius.circular(1.2)), p);
+        final back = Path()
+          ..moveTo(2.5, 2.5)
+          ..lineTo(2.5, 0.5)
+          ..lineTo(w - 0.5, 0.5)
+          ..lineTo(w - 0.5, h - 2.5)
+          ..lineTo(w - 2.5, h - 2.5);
+        canvas.drawPath(back, p);
+      case _Glyph.close:
+        canvas.drawLine(Offset.zero, Offset(w, h), p);
+        canvas.drawLine(Offset(w, 0), Offset(0, h), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GlyphPainter old) => old.glyph != glyph || old.color != color;
 }
 
 class _TabBar extends StatelessWidget {
