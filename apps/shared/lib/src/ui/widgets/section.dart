@@ -74,8 +74,8 @@ class OxSection extends StatelessWidget {
     final rows = <Widget>[];
     for (var i = 0; i < children.length; i++) {
       if (i > 0) {
-        rows.add(const Padding(
-          padding: EdgeInsets.only(left: 18),
+        rows.add(Padding(
+          padding: const EdgeInsets.only(left: 18),
           child: Divider(height: 0.6, thickness: 0.6, color: Ox.hairlineSoft),
         ));
       }

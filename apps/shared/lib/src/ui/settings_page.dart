@@ -111,7 +111,8 @@ class SettingsPage extends StatelessWidget {
                           title: 'Whole-device VPN',
                           subtitle: s.protocol == 'sstp' ? 'SSTP always uses the Android VPN service' : 'Off means proxy only',
                           value: s.protocol == 'sstp' || s.vpnMode,
-                          onChanged: s.protocol == 'sstp' ? null : (v) => set((x) => x.vpnMode = v),
+                          enabled: s.protocol != 'sstp',
+                          onChanged: (v) => set((x) => x.vpnMode = v),
                         ),
                         if (s.protocol != 'sstp') SwitchRow(
                           title: 'Fake DNS',
