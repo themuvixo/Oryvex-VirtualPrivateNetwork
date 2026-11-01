@@ -24,7 +24,7 @@ class IpInfo {
 
 /// Resolves the public egress IP over verified HTTPS. When [socksPort] is supplied, every
 /// request is tunneled through that proxy and never falls back to the device's direct route.
-/// Without it, the OS routing table is used, which includes a connected Windows SSTP adapter.
+/// Without it, the OS routing table is used (the direct route, when nothing is connected).
 class IpLookup {
   IpLookup._();
 
@@ -34,13 +34,12 @@ class IpLookup {
   ];
   static const _ipPattern = r'^(?:\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$';
 
-  /// The Android app process bypasses its own VpnService, so core tunnels must use SOCKS.
-  /// Windows SSTP is a system route and intentionally uses the direct socket path.
+  /// The Android app process bypasses its own VpnService, so every route is checked through the
+  /// core's SOCKS5 port while it is connected, and directly otherwise.
   static int? socksPortForRoute({
     required bool tunnelConnected,
-    required String? activeProtocol,
     required int configuredSocksPort,
-  }) => tunnelConnected && activeProtocol != 'sstp' ? configuredSocksPort : null;
+  }) => tunnelConnected ? configuredSocksPort : null;
 
   static Future<IpInfo?> lookup({
     int? socksPort,

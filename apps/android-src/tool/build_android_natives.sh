@@ -21,7 +21,11 @@ ROOT="$(cd "$APP/../.." && pwd)"
 JNI="$APP/android/app/src/main/jniLibs"
 API="${ANDROID_API:-21}"
 ALL_ABIS=(arm64-v8a armeabi-v7a x86_64)
-CORE_FEATURES="${CORE_FEATURES:-tor}"
+# tor-exit-country lets the Tor route pick its exit country (auto / fastest / de,...). Should that
+# feature ever fail to build, the core is built again with plain tor (set CORE_FEATURES_STRICT=1
+# to fail instead).
+CORE_FEATURES="${CORE_FEATURES:-tor tor-exit-country}"
+CORE_FALLBACK_FEATURES="${CORE_FALLBACK_FEATURES:-tor}"
 HEV_REPO="${HEV_REPO:-https://github.com/heiher/hev-socks5-tunnel}"
 HEV_REF="${HEV_REF:-}"
 
@@ -55,7 +59,13 @@ build_core() {
     export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,max-page-size=16384"
     local feat=()
     [ -n "$CORE_FEATURES" ] && feat=(--features "$CORE_FEATURES")
-    cargo ndk -t "$abi" --platform "$API" build --release "${feat[@]}"
+    if ! cargo ndk -t "$abi" --platform "$API" build --release "${feat[@]}"; then
+      if [ "${CORE_FEATURES_STRICT:-0}" = 1 ] || [ "$CORE_FEATURES" = "$CORE_FALLBACK_FEATURES" ]; then
+        exit 1
+      fi
+      echo "::warning::core features '$CORE_FEATURES' did not build for $abi; building with '$CORE_FALLBACK_FEATURES' (no Tor exit-country choice)"
+      cargo ndk -t "$abi" --platform "$API" build --release --features "$CORE_FALLBACK_FEATURES"
+    fi
   )
   bin="$ROOT/oryvexcore/target/$triple/release/oryvexcore"
   if readelf -d "$bin" 2>/dev/null | grep -q 'libc++_shared.so'; then

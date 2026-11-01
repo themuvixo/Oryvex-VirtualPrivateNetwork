@@ -59,19 +59,11 @@ class ConnectionPlan {
 
   factory ConnectionPlan.of(CoreSettings s, {required bool android}) {
     final steps = <ConnStep>[];
-    if (s.protocol == 'sstp' && !s.torOnly) {
-      // SSTP runs in the native platform VPN service, not the OryvexCore process.
-      steps.add(ConnStep('servers', 'Pick a server',
-          starts: const ['sstp: refreshing'], finishes: const ['sstp: list ready'], idle: 'VPN Gate servers'));
-      steps.add(ConnStep('tunnel', 'SSTP handshake',
-          starts: const ['sstp: dialing'], finishes: const ['sstp: connected'], idle: android ? 'Android MS-SSTP engine' : 'Windows SSTP client'));
-      steps.add(ConnStep('ready', 'Online', idle: android ? 'Every app on this phone' : 'Every app on this PC'));
-      return ConnectionPlan._(steps, s.socksPort);
-    }
     if (s.torOnly) {
       steps.add(ConnStep('start', 'Start the core', finishes: const ['bootstrapping tor'], idle: 'Launching'));
       steps.add(ConnStep('tor', 'Bootstrap Tor',
           starts: const ['bootstrapping tor'], finishes: const ['tor is ready'], idle: 'Building a circuit'));
+      steps.add(_exitStep(s));
     } else {
       final carrier = usesMasqueCarrier(s.protocol) ? Choices.transports[s.transport] ?? '' : '';
       steps.add(ConnStep('identity', 'Identity',
@@ -104,9 +96,12 @@ class ConnectionPlan {
           idle: tunnelIdle));
     }
     steps.add(ConnStep('ready', 'Proxy ready', idle: 'SOCKS5 on port ${s.socksPort}'));
-    if (s.chain == 'tor') {
+    if (s.torOnly) {
+      // The exit step is already in the list above.
+    } else if (s.chain == 'tor') {
       steps.add(ConnStep('tor', 'Tor via tunnel',
           starts: const ['bootstrapping tor'], finishes: const ['tor is ready'], idle: 'Port ${s.torPort}'));
+      steps.add(_exitStep(s));
     } else if (s.chain == 'psiphon' && !android) {
       steps.add(ConnStep('psiphon', 'Psiphon via tunnel',
           starts: const ['psiphon will be carried'], finishes: const ['psiphon is ready'], idle: 'Port ${s.psiphonPort}'));
@@ -116,6 +111,21 @@ class ConnectionPlan {
     }
     return ConnectionPlan._(steps, s.socksPort);
   }
+
+  /// Where Tor leaves: measured, a country tried, or Tor's own pick. Every core path ends in one
+  /// "tor exit: using" line (see oryvexcore/src/tor.rs, choose_exit).
+  static ConnStep _exitStep(CoreSettings s) {
+    final idle = switch (s.torExit) {
+      'auto' => 'Tor picks by bandwidth',
+      'fastest' => 'Measuring the fastest country',
+      _ => 'Leaving from ${s.torExit.toUpperCase()}',
+    };
+    return ConnStep('exit', 'Tor exit',
+        starts: const ['tor exit: measuring', 'tor exit: trying'], finishes: const ['tor exit: using'], idle: idle);
+  }
+
+  static final _exitUsing = RegExp(r'tor exit: using (auto|[a-z]{2})\b(?:.*?(\d+) ms)?', caseSensitive: false);
+  static final _exitTrying = RegExp(r'tor exit: trying ([a-z]{2})', caseSensitive: false);
 
   int get _readyIndex => steps.indexWhere((x) => x.id == 'ready');
 
@@ -174,7 +184,6 @@ class ConnectionPlan {
   /// The port check skips the throwaway listener gool opens while it registers.
   bool isReadyLine(String m) {
     final l = m.toLowerCase();
-    if (steps.any((x) => x.starts.contains('sstp: dialing')) && l.contains('sstp: vpn established')) return true;
     return l.contains('listening on') && !l.contains('http proxy') && m.trimRight().endsWith(':$socksPort');
   }
 
@@ -214,6 +223,14 @@ class ConnectionPlan {
         final e = _edge.firstMatch(message);
         if (x.id == 'scan' && e != null) detail = e.group(1);
         if (x.id == 'tor' || x.id == 'psiphon') detail = 'Ready';
+        if (x.id == 'exit') {
+          final u = _exitUsing.firstMatch(message);
+          if (u != null) {
+            final code = u.group(1)!.toLowerCase();
+            final ms = u.group(2);
+            detail = code == 'auto' ? 'Tor\'s own pick' : '${code.toUpperCase()}${ms == null ? '' : ' · $ms ms'}';
+          }
+        }
         _finish(i, detail: detail);
         return true;
       }
@@ -221,6 +238,8 @@ class ConnectionPlan {
         String? detail;
         final r = _rtt.firstMatch(message);
         if (r != null) detail = '${r.group(1)} · ${r.group(2)}';
+        final t = _exitTrying.firstMatch(message);
+        if (x.id == 'exit' && t != null) detail = 'Trying ${t.group(1)!.toUpperCase()}';
         if (m.contains('registering') || m.contains('provisioning') || m.contains('enrolling')) {
           detail = 'Registering a new identity';
         }
@@ -246,7 +265,7 @@ class ConnectionPlan {
     }
   }
 
-  /// Marks every stage done, for routes whose readiness the app learns itself (SSTP).
+  /// Marks every stage done, for routes whose readiness the app learns itself.
   void completeAll({String? readyDetail}) {
     for (final x in steps) {
       x.status = StepStatus.done;

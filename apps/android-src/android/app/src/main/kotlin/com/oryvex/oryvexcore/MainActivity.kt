@@ -58,9 +58,8 @@ class MainActivity : FlutterActivity() {
                             ipv6 = call.argument<Boolean>("ipv6") ?: true,
                             runId = call.argument<Number>("runId")?.toLong() ?: System.currentTimeMillis(),
                             protocol = call.argument<String>("protocol") ?: "auto",
-                            sstpAddress = call.argument<String>("sstpAddress"),
                         )
-                        if (req.vpn || req.protocol == "sstp") {
+                        if (req.vpn) {
                             val consent = try { VpnService.prepare(this) } catch (_: Throwable) { null }
                             if (consent != null) {
                                 pending?.result?.error("VPN_DENIED", "superseded by a newer request", null)

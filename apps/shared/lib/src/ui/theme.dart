@@ -13,22 +13,23 @@ class Ox {
   // Surfaces: switched as a group so custom controls follow the saved appearance setting.
   static const black = Color(0xFF000000);
   static bool darkMode = true;
-  static Color canvas = const Color(0xFF0B0D12);
-  static Color nav = const Color(0xD9141720);
-  static Color tile = const Color(0xFF151922);
-  static Color tileHi = const Color(0xFF252B36);
-  static Color tileTop = const Color(0xFF202633);
-  static Color field = const Color(0xFF1C222D);
-  static Color hairline = const Color(0xFF303846);
-  static Color hairlineSoft = const Color(0xFF252C37);
+  // Dark: an ink-black canvas with a faint blue cast, tiles lifted by one step and a hairline.
+  static Color canvas = const Color(0xFF06080C);
+  static Color nav = const Color(0xE00B0E14);
+  static Color tile = const Color(0xFF10141B);
+  static Color tileHi = const Color(0xFF1E2530);
+  static Color tileTop = const Color(0xFF1A202A);
+  static Color field = const Color(0xFF161B23);
+  static Color hairline = const Color(0xFF2A3240);
+  static Color hairlineSoft = const Color(0xFF1C222C);
 
-  // Blue
-  static const blue = Color(0xFF0071E3); // apple.com blue: links and every "on"
-  static const blueCta = Color(0xFF0071E3); // apple.com button blue
-  static const blueCtaHi = Color(0xFF0077ED); // its hover
-  static const blueSoft = Color(0xFF2997FF);
-  static const blueDeep = Color(0xFF0040DD);
-  static const blueIce = Color(0xFF6CB4FF);
+  // Blue: one electric blue for every action and every "on", readable on ink and on white.
+  static const blue = Color(0xFF0A6CFF);
+  static const blueCta = Color(0xFF0A6CFF);
+  static const blueCtaHi = Color(0xFF2A80FF); // its hover
+  static const blueSoft = Color(0xFF4C9BFF);
+  static const blueDeep = Color(0xFF0046D5);
+  static const blueIce = Color(0xFF8CC2FF);
 
   // Type
   static Color text = const Color(0xFFF4F6FA);
@@ -63,14 +64,14 @@ class Ox {
 
   static void setDarkMode(bool dark) {
     darkMode = dark;
-    canvas = dark ? const Color(0xFF0B0D12) : const Color(0xFFF5F5F7);
-    nav = dark ? const Color(0xD9141720) : const Color(0xD9FBFBFD);
-    tile = dark ? const Color(0xFF151922) : const Color(0xFFFFFFFF);
-    tileHi = dark ? const Color(0xFF252B36) : const Color(0xFFE8E8ED);
-    tileTop = dark ? const Color(0xFF202633) : const Color(0xFFFFFFFF);
-    field = dark ? const Color(0xFF1C222D) : const Color(0xFFF0F0F3);
-    hairline = dark ? const Color(0xFF303846) : const Color(0xFFD2D2D7);
-    hairlineSoft = dark ? const Color(0xFF252C37) : const Color(0xFFE6E6EB);
+    canvas = dark ? const Color(0xFF06080C) : const Color(0xFFF5F5F7);
+    nav = dark ? const Color(0xE00B0E14) : const Color(0xD9FBFBFD);
+    tile = dark ? const Color(0xFF10141B) : const Color(0xFFFFFFFF);
+    tileHi = dark ? const Color(0xFF1E2530) : const Color(0xFFE8E8ED);
+    tileTop = dark ? const Color(0xFF1A202A) : const Color(0xFFFFFFFF);
+    field = dark ? const Color(0xFF161B23) : const Color(0xFFF0F0F3);
+    hairline = dark ? const Color(0xFF2A3240) : const Color(0xFFD2D2D7);
+    hairlineSoft = dark ? const Color(0xFF1C222C) : const Color(0xFFE6E6EB);
     text = dark ? const Color(0xFFF4F6FA) : const Color(0xFF1D1D1F);
     secondary = dark ? const Color(0xFFA7B0BF) : const Color(0xFF6E6E73);
     tertiary = dark ? const Color(0xFF7E899A) : const Color(0xFF86868B);

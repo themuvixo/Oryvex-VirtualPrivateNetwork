@@ -52,6 +52,8 @@ class OxTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: tileColor,
         borderRadius: BorderRadius.circular(Ox.radiusTile),
+        // On the ink canvas a shadow cannot be seen: a hairline edge lifts the tile instead.
+        border: Ox.darkMode && tileColor == Ox.tile ? Border.all(color: Ox.hairlineSoft, width: 0.8) : null,
         boxShadow: tileColor == Ox.tile ? Ox.tileShadow : null,
       ),
       child: child,

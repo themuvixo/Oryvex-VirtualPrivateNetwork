@@ -16,7 +16,7 @@ name: apps
 on:
   push:
     branches: [main, master]
-    paths-ignore: ["**.md", "docs/**", "branding/**"]
+    paths-ignore: ["**.md", "docs/**", "branding/**", "site/**"]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -255,14 +255,15 @@ jobs:
         run: bash scripts/psiphon-build.sh windows amd64 "$PWD/pt" "" "$PWD/LICENSES"
 
       - name: Build core
-        run: cargo build --release --features tor --target x86_64-pc-windows-msvc
+        shell: bash
+        run: bash scripts/build-core.sh cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Collect licenses
         shell: bash
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
           python -m unittest discover -s scripts/tests -v
-          python scripts/third-party-notices.py --target x86_64-pc-windows-msvc --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          python scripts/third-party-notices.py --target x86_64-pc-windows-msvc --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Stage
         shell: bash
@@ -404,7 +405,8 @@ jobs:
           kept in %APPDATA%\OryvexCore.
 
           Windows 7 needs Service Pack 1 and update KB2533623 (both come with
-          Windows Update). Tor and Psiphon chains are not in the legacy build.
+          Windows Update). Tor and Psiphon are not in the legacy build: use the
+          Windows 10/11 app (OryvexVPN-windows-x64.zip) for the Tor route.
           TXT
           cd stage && 7z a -tzip "../OryvexVPN-windows-legacy-${{ matrix.arch }}.zip" "OryvexVPN-windows-legacy-${{ matrix.arch }}"
 

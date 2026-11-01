@@ -60,10 +60,15 @@ tor-rtcompat = { version = "0.46", default-features = false, features = ["tokio"
 tokio-util = { version = "0.7", features = ["compat"], optional = true }
 liblzma = { version = "0.4", features = ["static"], optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"], optional = true }
+# Exit-country selection: arti's GeoIP table (bundled in the crate, no lookup service).
+tor-geoip = { version = "0.46", optional = true }
 
 [features]
 default = []
 tor = ["dep:arti-client", "dep:tor-chanmgr", "dep:tor-rtcompat", "dep:tokio-util", "dep:liblzma", "dep:tracing-subscriber"]
+# Lets --tor-exit pick the exit country (auto / fastest / de,nl,...). Separate from `tor` so a
+# build where arti's GeoIP API moves still has Tor; the CI falls back to plain `tor` then.
+tor-exit-country = ["tor", "arti-client/geoip", "dep:tor-geoip"]
 
 [profile.release]
 opt-level = 3

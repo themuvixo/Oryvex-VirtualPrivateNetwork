@@ -7,6 +7,7 @@ import 'theme.dart';
 import 'widgets/brand.dart';
 import 'widgets/motion.dart';
 import 'widgets/section.dart';
+import 'widgets/tor_exit_picker.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.controller});
@@ -54,7 +55,7 @@ class SettingsPage extends StatelessWidget {
                     children: [
                       ChoiceRow(
                         label: 'Protocol',
-                        options: Choices.protocolsFor(sstp: c.supportsSstp),
+                        options: Choices.protocols,
                         value: s.protocol,
                         hint: Choices.protocolHints[s.protocol],
                         onChanged: (v) => set((x) => x.protocol = v),
@@ -68,34 +69,34 @@ class SettingsPage extends StatelessWidget {
                           hint: Choices.transportHints[s.transport],
                           onChanged: (v) => set((x) => x.transport = v),
                         ),
-                      ChoiceRow(
+                      if (!s.torOnly) ChoiceRow(
                         label: 'Scan',
                         options: Choices.scans,
                         value: s.scan,
                         hint: Choices.scanHints[s.scan],
                         onChanged: (v) => set((x) => x.scan = v),
                       ),
-                      ChoiceRow(
+                      if (!s.torOnly) ChoiceRow(
                         label: 'Obfuscation',
                         options: Choices.noizes,
                         value: s.noize,
                         hint: 'Reach for GFW when the default does not get through.',
                         onChanged: (v) => set((x) => x.noize = v),
                       ),
-                      ChoiceRow(
+                      if (!s.torOnly) ChoiceRow(
                         label: 'IP version',
                         segmented: true,
                         options: Choices.ips,
                         value: s.ip,
                         onChanged: (v) => set((x) => x.ip = v),
                       ),
-                      SwitchRow(
+                      if (!s.torOnly) SwitchRow(
                         title: 'Fragment TLS ClientHello',
                         subtitle: 'Helps where a firewall resets the handshake',
                         value: s.fragment,
                         onChanged: (v) => set((x) => x.fragment = v),
                       ),
-                      SwitchRow(
+                      if (!s.torOnly) SwitchRow(
                         title: 'Quick reconnect',
                         subtitle: 'Reuse the last gateway that worked',
                         value: s.quickReconnect,
@@ -109,19 +110,18 @@ class SettingsPage extends StatelessWidget {
                       children: [
                         SwitchRow(
                           title: 'Whole-device VPN',
-                          subtitle: s.protocol == 'sstp' ? 'SSTP always uses the Android VPN service' : 'Off means proxy only',
-                          value: s.protocol == 'sstp' || s.vpnMode,
-                          enabled: s.protocol != 'sstp',
+                          subtitle: s.torOnly ? 'Every app goes through Tor (TCP; DNS is answered locally)' : 'Off means proxy only',
+                          value: s.vpnMode,
                           onChanged: (v) => set((x) => x.vpnMode = v),
                         ),
-                        if (s.protocol != 'sstp') SwitchRow(
+                        SwitchRow(
                           title: 'Fake DNS',
                           subtitle: 'Resolve names through the tunnel, no UDP needed',
                           value: s.fakeDns,
                           enabled: s.vpnMode,
                           onChanged: (v) => set((x) => x.fakeDns = v),
                         ),
-                        if (s.protocol != 'sstp') SwitchRow(
+                        SwitchRow(
                           title: 'Tunnel IPv6',
                           subtitle: 'Keeps IPv6 traffic from leaking around the VPN',
                           value: s.vpnIpv6,
@@ -167,7 +167,25 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  OxSection(
+                  if (s.usesTorExit)
+                    OxSection(
+                      title: 'Tor',
+                      footer: 'Exit countries come from the Tor directory, fetched through Tor itself.',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                          child: TorExitPicker(controller: c, quickCount: 12),
+                        ),
+                        if (s.torExit != 'auto')
+                          SwitchRow(
+                            title: 'Strict exit',
+                            subtitle: 'Fail instead of leaving elsewhere when no chosen exit answers',
+                            value: s.torExitStrict,
+                            onChanged: (v) => set((x) => x.torExitStrict = v),
+                          ),
+                      ],
+                    ),
+                  if (!s.torOnly) OxSection(
                     title: 'Extra exit',
                     children: [
                       ChoiceRow(

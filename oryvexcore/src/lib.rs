@@ -28,6 +28,7 @@ pub mod stats;
 pub mod sysprofile;
 pub mod tls;
 pub mod tor;
+pub mod tor_exits;
 pub mod tunnelping;
 pub mod upstream;
 pub mod wg_prober;

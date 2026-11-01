@@ -10,10 +10,8 @@ import 'ip_info.dart';
 import 'log_line.dart';
 import 'ports.dart';
 import 'settings.dart';
-import 'sstp.dart';
-import 'sstp_servers.dart';
 import 'steps.dart';
-import 'vpngate.dart';
+import 'tor_exits.dart';
 import 'win_proxy.dart';
 
 enum CoreState { stopped, starting, connecting, connected, reconnecting, stopping }
@@ -107,19 +105,17 @@ class CoreController extends ChangeNotifier {
   Timer? _verificationTimer;
   bool _switching = false;
 
-  // --- SSTP (Windows and Android) -------------------------------------------------------------
+  // --- Tor exits (Windows and Android) --------------------------------------------------------
 
-  /// The VPN Gate servers SSTP can dial: the bundled list until a refresh replaces it.
-  List<SstpServer> sstpServers = bundledSstpServers;
+  /// The countries Tor can leave from: the bundled list until the core reports the directory it
+  /// fetched through Tor, which is then saved for the next start.
+  TorExitDirectory torExits = TorExitDirectory.bundled();
 
-  /// When [sstpServers] was fetched from vpngate.net; null for the bundled list.
-  DateTime? sstpUpdatedAt;
-  bool sstpRefreshing = false;
+  /// The exit the running Tor proxy settled on: 'auto' or a lowercase country code.
+  String? torExitInUse;
 
-  /// The server the current SSTP session is connected to.
-  SstpServer? sstpConnected;
-  Timer? _sstpPoll;
-  int _sstpMisses = 0;
+  /// How long the chosen exit took to answer, when the core measured it.
+  int? torExitMs;
   int? _verificationRun;
 
   // --- Public address -------------------------------------------------------------------------
@@ -144,13 +140,11 @@ class CoreController extends ChangeNotifier {
 
   bool get isActive => state != CoreState.stopped;
 
-  /// Windows uses RasClient; Android uses the integrated MS-SSTP engine in OryvexVpnService.
-  bool get supportsSstp => backend.isAndroid || SstpClient.supported;
-
   /// Auto is picking the protocol for this connection.
-  bool get isAuto => settings.protocol == 'auto' && !settings.torOnly;
+  bool get isAuto => settings.protocol == 'auto';
 
-  bool get _sstpMode => settings.protocol == 'sstp' && !settings.torOnly && supportsSstp;
+  /// Tor is in play: as the whole route, or as the extra exit carried by the tunnel.
+  bool get usesTor => settings.torOnly || settings.chain == 'tor';
 
   /// The protocol to show: the one in use, or the one that will be tried first.
   String get routeProtocol => activeProtocol ?? (isAuto ? Choices.autoOrder.first : settings.protocol);
@@ -177,16 +171,8 @@ class CoreController extends ChangeNotifier {
 
   Future<void> init() async {
     settings = await CoreSettings.load();
-    if (settings.protocol == 'sstp' && !supportsSstp) settings.protocol = 'auto';
     plan = ConnectionPlan.of(settings, android: backend.isAndroid);
-    if (supportsSstp) {
-      final (servers, at) = await VpnGateDirectory.load();
-      sstpServers = servers;
-      sstpUpdatedAt = at;
-      // An SSTP session the app can no longer see (it was closed while connected) is hung up,
-      // so the switch and Windows never disagree.
-      unawaited(SstpClient.disconnect());
-    }
+    torExits = await TorExitDirectory.load();
     if (Platform.isWindows) {
       // A crash while the system proxy pointed at us must not leave the user offline.
       WinProxy.restore();
@@ -196,7 +182,6 @@ class CoreController extends ChangeNotifier {
     if (st.running) {
       // Android: the service kept the core running while the UI was closed. Pick it back up.
       _run = st.run;
-      if (backend.isAndroid && settings.protocol == 'sstp') activeProtocol = 'sstp';
       state = CoreState.connecting;
       vpnUp = st.vpnUp;
       plan.begin();
@@ -222,7 +207,7 @@ class CoreController extends ChangeNotifier {
 
   Future<void> start() async {
     if (state != CoreState.stopped || _busy) return;
-    final problem = _sstpMode ? null : settings.problem(android: backend.isAndroid);
+    final problem = settings.problem(android: backend.isAndroid);
     if (problem != null) {
       lastError = problem;
       _notify();
@@ -238,11 +223,9 @@ class CoreController extends ChangeNotifier {
     upRate.clear();
     rateTick++;
     autoIndex = 0;
+    torExitInUse = null;
+    torExitMs = null;
 
-    if (_sstpMode) {
-      await _startSstp();
-      return;
-    }
     if (isAuto) {
       _gui('[gui] auto: will try ${Choices.autoOrder.map(Choices.protocolLong).join(', then ')}');
     }
@@ -262,7 +245,7 @@ class CoreController extends ChangeNotifier {
     final run = math.max(DateTime.now().millisecondsSinceEpoch, _run + 1);
     _run = run;
     final attempt = _attemptSettings();
-    activeProtocol = settings.torOnly ? null : attempt.protocol;
+    activeProtocol = attempt.protocol;
     edge = null;
     coreUptime = null;
     connectedAt = null;
@@ -348,7 +331,7 @@ class CoreController extends ChangeNotifier {
     if (last) {
       _markStopped();
       lastError = 'Auto tried WireGuard, MASQUE, MASQUE² and Gool, and none of them connected. '
-          'Try the Thorough scan, HTTP/2${supportsSstp ? ', or SSTP' : ''}.';
+          'Try the Thorough scan, HTTP/2, or the Tor route.';
       _gui('[gui] auto: $from did not connect either ($why); giving up');
       _notify();
       unawaited(refreshIp());
@@ -385,32 +368,6 @@ class CoreController extends ChangeNotifier {
 
   Future<void> stop() async {
     if (state == CoreState.stopped || state == CoreState.stopping) return;
-    if (activeProtocol == 'sstp' && backend.isAndroid) {
-      _cancelRequested = true;
-      state = CoreState.stopping;
-      _notify();
-      await backend.stop();
-      if (state == CoreState.stopping) _markStopped();
-      unawaited(refreshIp());
-      _notify();
-      return;
-    }
-    if (activeProtocol == 'sstp') {
-      // Hanging up also ends a dial that is still in progress.
-      _cancelRequested = true;
-      state = CoreState.stopping;
-      _notify();
-      _sstpPoll?.cancel();
-      _sstpPoll = null;
-      await SstpClient.disconnect();
-      if (!_busy && state == CoreState.stopping) {
-        _markStopped();
-        _gui('[gui] sstp: disconnected');
-        unawaited(refreshIp());
-      }
-      _notify();
-      return;
-    }
     if (state == CoreState.starting) {
       // start() (or an Auto switch) is still in flight; it sees this and winds down on its own.
       _cancelRequested = true;
@@ -434,13 +391,12 @@ class CoreController extends ChangeNotifier {
     vpnUp = false;
     connectedAt = null;
     activeProtocol = null;
-    sstpConnected = null;
+    torExitInUse = null;
+    torExitMs = null;
     _attemptTimer?.cancel();
     _attemptTimer = null;
     _verificationTimer?.cancel();
     _verificationTimer = null;
-    _sstpPoll?.cancel();
-    _sstpPoll = null;
     // The speed tiles fall back to zero instead of freezing on the last sample.
     downRate.clear();
     upRate.clear();
@@ -483,20 +439,6 @@ class CoreController extends ChangeNotifier {
         _ingest(line);
       case ExitEvent(:final code):
         if (state == CoreState.stopped) break;
-        if (activeProtocol == 'sstp' && backend.isAndroid) {
-          final wasConnected = state == CoreState.connected;
-          final wasStopping = state == CoreState.stopping;
-          _markStopped();
-          if (!wasStopping && lastError == null) {
-            lastError = wasConnected
-                ? 'The SSTP connection dropped. Connect again to choose a relay.'
-                : 'SSTP could not connect. Open Activity for the failure reason.';
-            if (wasConnected) _gui('[gui] sstp: connection dropped');
-          }
-          unawaited(refreshIp());
-          break;
-        }
-        if (activeProtocol == 'sstp') break;
         if (isAuto && !_switching && state == CoreState.connecting) {
           // The attempt died before it connected: Auto moves on instead of stopping.
           unawaited(_failover(_run, code != null && code != 0 ? 'the core exited with code $code' : 'the core exited'));
@@ -522,6 +464,20 @@ class CoreController extends ChangeNotifier {
   void _ingest(String raw) {
     if (raw.trim().isEmpty) return;
     final line = LogLine.parse(raw);
+
+    // The core's exit directory: one machine-readable line, kept out of Activity.
+    final directory = TorExitDirectory.fromLogLine(line.message);
+    if (directory != null) {
+      torExits = directory;
+      if (directory.source != 'bundled') unawaited(directory.save());
+      _scheduleNotify();
+      return;
+    }
+    final exit = TorExitDirectory.exitInUse(line.message);
+    if (exit != null) {
+      torExitInUse = exit.$1;
+      torExitMs = exit.$2;
+    }
     if (logs.isNotEmpty && logs.last.sameAs(line)) {
       logs.last.repeat++;
     } else {
@@ -643,137 +599,11 @@ class CoreController extends ChangeNotifier {
   }
 
   Future<void> shutdown() async {
-    if (activeProtocol == 'sstp') await SstpClient.disconnect();
     await backend.shutdown();
   }
 
-  // --- SSTP ---------------------------------------------------------------------------------
-
-  /// The servers SSTP tries, in order: the chosen one first, then the best by VPN Gate's score
-  /// that report some throughput.
-  List<SstpServer> _sstpCandidates() {
-    final ranked = List<SstpServer>.of(sstpServers)
-      ..sort((a, b) {
-        final live = (b.mbps > 0 ? 1 : 0).compareTo(a.mbps > 0 ? 1 : 0);
-        return live != 0 ? live : b.score.compareTo(a.score);
-      });
-    final chosen = settings.sstpServer.trim();
-    if (chosen.isEmpty) return ranked;
-    final pick = ranked.where((x) => x.address == chosen).toList();
-    if (pick.isEmpty) {
-      // A server typed in by hand, or one a refresh no longer lists: try it first anyway.
-      final parts = chosen.split(':');
-      final manual = SstpServer.parseAddress(chosen);
-      if (manual != null) pick.add(manual);
-    }
-    return [...pick, ...ranked.where((x) => x.address != chosen)];
-  }
-
-  /// Fetches a fresh server list from vpngate.net. With [quiet], failures are only logged.
-  Future<bool> refreshSstpServers({bool quiet = false}) async {
-    if (!supportsSstp || sstpRefreshing) return false;
-    sstpRefreshing = true;
-    _notify();
-    try {
-      final fresh = await VpnGateDirectory.refresh();
-      sstpServers = fresh;
-      sstpUpdatedAt = DateTime.now();
-      _gui('[gui] sstp: list ready, ${fresh.length} servers from vpngate.net');
-      return true;
-    } catch (e) {
-      _gui('[gui] sstp: could not refresh the server list ($e); using the saved one');
-      if (!quiet) lastError = 'Could not reach vpngate.net to refresh the SSTP servers. The saved list still works.';
-      return false;
-    } finally {
-      sstpRefreshing = false;
-      _notify();
-    }
-  }
-
-  Future<void> _startSstp() async {
-    _busy = true;
-    final run = math.max(DateTime.now().millisecondsSinceEpoch, _run + 1);
-    _run = run;
-    activeProtocol = 'sstp';
-    edge = null;
-    coreUptime = null;
-    connectedAt = null;
-    vpnUp = false;
-    sstpConnected = null;
-    _lastUpBytes = null;
-    _lastDownBytes = null;
-    _lastStatsAt = null;
-    plan = ConnectionPlan.of(settings, android: backend.isAndroid)..begin();
-    state = CoreState.starting;
-    _notify();
-
-    try {
-      // Never fetch the directory during connect or retry. Use the bundled/cached list;
-      // the Settings refresh action is the only network refresh path.
-      _gui('[gui] sstp: list ready, ${sstpServers.length} saved servers (manual refresh only)');
-      state = CoreState.connecting;
-      _notify();
-
-      const tries = 6;
-      final candidates = _sstpCandidates().take(tries).toList();
-      if (backend.isAndroid) {
-        final server = candidates.isNotEmpty ? candidates.first : null;
-        if (server == null || !server.isValid) {
-          throw BackendException('No valid VPN Gate SSTP relay is available. Refresh the server list.');
-        }
-        settings.sstpServer = server.address;
-        _gui('[gui] sstp: dialing ${server.address} (${server.country.isEmpty ? 'VPN Gate' : server.country})');
-        await backend.start(settings.copy(), run);
-        if (_cancelRequested || _run != run) return;
-        sstpConnected = server;
-        if (state != CoreState.connected) state = CoreState.connecting;
-        _busy = false;
-        _notify();
-        return;
-      }
-      for (final server in candidates) {
-        if (_cancelRequested || _run != run) break;
-        _gui('[gui] sstp: dialing ${server.address} (${server.country.isEmpty ? 'VPN Gate' : server.country})');
-        final error = await SstpClient.connect(server);
-        if (_cancelRequested || _run != run) break;
-        if (error == null) {
-          sstpConnected = server;
-          edge = server.address;
-          plan.completeAll(readyDetail: server.label);
-          _gui('[gui] sstp: tunnel established; checking HTTPS traffic');
-          final verified = await _verifyAndMarkConnected(run, directRoute: true);
-          if (!verified) {
-            await SstpClient.disconnect();
-            throw BackendException('SSTP connected, but the HTTPS traffic check did not return HTTP 200.');
-          }
-          if (_run == run && state == CoreState.connected) {
-            _gui('[gui] sstp: connected to ${server.address}');
-            _startSstpPoll(run);
-          }
-          return;
-        }
-        _gui('[gui] sstp: ${server.address} did not connect: $error');
-      }
-      if (_cancelRequested || _run != run) {
-        await SstpClient.disconnect();
-        _finishCancelled(run);
-        return;
-      }
-      throw BackendException('None of the $tries best SSTP servers answered. '
-          'Refresh the server list in Settings, or pick another server.');
-    } on BackendException catch (e) {
-      _failStart(run, e.message);
-    } catch (e) {
-      _failStart(run, friendlyError('$e'));
-    } finally {
-      _busy = false;
-      _notify();
-    }
-  }
-
-  /// Verify the tunnel with HTTPS before reporting Connected. Core routes use SOCKS;
-  /// Windows SSTP uses the OS-routed adapter.
-  Future<bool> _verifyAndMarkConnected(int run, {bool directRoute = false}) async {
+  /// Verify the tunnel with HTTPS through the core's SOCKS5 proxy before reporting Connected.
+  Future<bool> _verifyAndMarkConnected(int run) async {
     if (_verificationRun == run || _run != run || state == CoreState.stopped ||
         state == CoreState.stopping) return false;
     _verificationRun = run;
@@ -781,16 +611,16 @@ class CoreController extends ChangeNotifier {
     _attemptTimer = null;
     _gui('[gui] verify: testing HTTPS through the tunnel (HTTP 200 required)');
     try {
-      // IpLookup tries two independently hosted HTTPS endpoints and accepts only 200 responses.
-      // Core protocols go through the local SOCKS proxy; Windows SSTP uses its system route.
+      // IpLookup tries two independently hosted HTTPS endpoints and accepts only 200 responses,
+      // always through the local SOCKS proxy (the app itself bypasses its own VPN on Android).
       final result = await IpLookup.lookup(
-        socksPort: directRoute ? null : IpLookup.socksPortForRoute(
+        socksPort: IpLookup.socksPortForRoute(
           tunnelConnected: true,
-          activeProtocol: activeProtocol,
           configuredSocksPort: settings.socksPort,
         ),
         throughTunnel: true,
-        timeout: const Duration(seconds: 8),
+        // Tor builds a fresh circuit for the first request: give it longer.
+        timeout: Duration(seconds: settings.torOnly ? 20 : 8),
       );
       if (_run != run || state == CoreState.stopped || state == CoreState.stopping) return false;
       if (result == null) {
@@ -798,7 +628,7 @@ class CoreController extends ChangeNotifier {
         _gui('[gui] verify: HTTPS check failed; connection is not marked connected');
         if (isAuto && _run == run) {
           unawaited(_failover(run, 'HTTPS verification did not return HTTP 200'));
-        } else if (!directRoute && _run == run && state != CoreState.stopped && state != CoreState.stopping) {
+        } else if (_run == run && state != CoreState.stopped && state != CoreState.stopping) {
           _verificationTimer?.cancel();
           _verificationTimer = Timer(const Duration(seconds: 5), () {
             _verificationTimer = null;
@@ -828,50 +658,6 @@ class CoreController extends ChangeNotifier {
     }
   }
 
-  void _startSstpPoll(int run) {
-    _sstpPoll?.cancel();
-    _sstpMisses = 0;
-    var polling = false;
-    _sstpPoll = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (polling || _run != run || state != CoreState.connected) return;
-      polling = true;
-      try {
-        final counters = await SstpClient.counters();
-        if (_run != run || state != CoreState.connected) return;
-        if (counters == null) {
-          _sstpMisses++;
-          if (_sstpMisses >= 3 && !await SstpClient.isConnected()) {
-            if (_run != run || state != CoreState.connected) return;
-            _markStopped();
-            lastError = 'The SSTP connection dropped. Connect again to pick another server.';
-            _gui('[gui] sstp: the connection dropped');
-            unawaited(refreshIp());
-            _notify();
-          }
-          return;
-        }
-        _sstpMisses = 0;
-        down = _formatBytes(counters.down);
-        up = _formatBytes(counters.up);
-        _sampleBytes(counters.up.toDouble(), counters.down.toDouble(), DateTime.now());
-        _notify();
-      } finally {
-        polling = false;
-      }
-    });
-  }
-
-  static String _formatBytes(int bytes) {
-    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-    var v = bytes.toDouble();
-    var u = 0;
-    while (v >= 1024 && u < units.length - 1) {
-      v /= 1024;
-      u++;
-    }
-    return u == 0 ? '$bytes B' : '${v.toStringAsFixed(1)} ${units[u]}';
-  }
-
   // --- Public address -------------------------------------------------------------------------
 
   /// Looks up the address and country the internet sees. Through the core's SOCKS5 port while
@@ -885,7 +671,6 @@ class CoreController extends ChangeNotifier {
     final info = await IpLookup.lookup(
       socksPort: IpLookup.socksPortForRoute(
         tunnelConnected: viaTunnel,
-        activeProtocol: activeProtocol,
         configuredSocksPort: settings.socksPort,
       ),
       throughTunnel: viaTunnel,

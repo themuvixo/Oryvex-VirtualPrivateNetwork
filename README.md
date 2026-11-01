@@ -6,7 +6,8 @@
 <p align="center">
   <a href="https://github.com/OWNER/OryvexCore/releases/latest">Download</a> ·
   <a href="docs/GUIDE.md">Guide</a> ·
-  <a href="docs/SSTP.md">SSTP / VPN Gate support</a> ·
+  <a href="docs/TOR.md">Tor exits</a> ·
+  <a href="https://OWNER.github.io/OryvexCore/">Website</a> ·
   <a href="docs/DOCS.md">Full reference</a> ·
   <a href="docs/OPENWRT.md">OpenWrt</a>
 </p>
@@ -23,7 +24,7 @@ OryvexCore finds a route that works on your network, opens an encrypted tunnel t
 - **Extra exits.** Tor through the tunnel, Tor alone, or Psiphon through the tunnel (desktop).
 - **Stays up.** Automatic reconnect, and quick reconnect to the last gateway that worked.
 - **Verifies real traffic.** The app waits for HTTPS through the tunnel to return HTTP 200 before showing Connected.
-- **Manual SSTP refresh.** VPN Gate server lists use the bundled or saved copy until you refresh them in Settings.
+- **Tor as a route.** Built-in Tor (Arti) on Windows and Android with Auto, Fastest or a chosen exit country; the exit list is fetched through Tor itself.
 - **Runs anywhere.** Windows, Android, Linux, macOS, OpenWrt routers, Termux and Docker.
 
 ## The apps
@@ -51,7 +52,8 @@ OryvexVPN/
 │   ├── android-src/         Flutter app for Android (VpnService, tool/build_android_natives.sh)
 │   └── desktop-lite-src/    OryvexVPN Lite, native Win32 (Rust)
 ├── branding/                logo (SVG + PNG)
-├── docs/                    guide, full reference, OpenWrt
+├── docs/                    guide, full reference, Tor exits, OpenWrt
+├── site/                    GitHub Pages website (pages.yml)
 ├── license-texts/  tools/  .github/workflows/
 └── Dockerfile  LICENSE  NOTICE.md  TRADEMARK.md
 ```
@@ -64,7 +66,7 @@ Everything is built by GitHub Actions (`.github/workflows/apps.yml` for the apps
 
 ```bash
 cd oryvexcore
-cargo build --release                 # add --features tor for Tor support
+bash scripts/build-core.sh cargo build --release   # tor + exit-country, falls back on tor
 ./target/release/oryvexcore --masque --turbo -4
 ```
 
@@ -99,6 +101,7 @@ oryvexcore --wg --thorough --noize gfw       # WireGuard on a strict network
 oryvexcore --gool                            # WireGuard inside MASQUE
 oryvexcore --mim --h2                        # MASQUE inside MASQUE over HTTP/2
 oryvexcore --masque --tor                    # plus a Tor exit on --tor-bind
+oryvexcore --tor-only --tor-exit fastest     # plain Tor, fastest exit country
 ```
 
 Then point apps at `socks5h://127.0.0.1:1819`:

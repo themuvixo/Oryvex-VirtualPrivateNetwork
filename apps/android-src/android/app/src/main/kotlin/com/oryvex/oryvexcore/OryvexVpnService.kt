@@ -8,7 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import kittoku.osc.service.SstpVpnService
+import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -29,7 +29,7 @@ import kotlin.concurrent.thread
  *  - a core that ignores SIGTERM is killed after 3 s, and a session whose pipes never close is
  *    declared over after 6 s, so the UI can never get stuck on "Disconnecting".
  */
-class OryvexVpnService : SstpVpnService() {
+class OryvexVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "com.oryvex.oryvexcore.START"
@@ -56,10 +56,7 @@ class OryvexVpnService : SstpVpnService() {
         }
 
         /** The core logs "[+] socks5 server listening on 127.0.0.1:1819" once the tunnel serves. */
-        fun isReady(line: String, port: Int): Boolean {
-            if (!line.contains("listening on") || line.contains("http proxy")) return false
-            return line.trimEnd().endsWith(":$port")
-        }
+        fun isReady(line: String, port: Int): Boolean = CoreLines.isSocksReady(line, port)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -68,39 +65,14 @@ class OryvexVpnService : SstpVpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var tunRunning = false
     private var stopping = false
-    private var sstpActive = false
     private var queued: StartRequest? = null
     private val timers = mutableListOf<Runnable>()
-
-    override fun onCreate() { super.onCreate() }
-
-    override fun onSstpEngineState(connected: Boolean, detail: String?) {
-        if (!sstpActive) return
-        val run = request?.runId ?: CoreBus.runId
-        if (connected && detail != null) {
-            CoreBus.line(run, "[gui] sstp: relay assigned address $detail")
-            CoreBus.line(run, "[gui] sstp: connected")
-            CoreBus.vpn(run, true)
-            CoreBus.line(run, "[gui] sstp: vpn established")
-            updateNotification(getString(R.string.status_vpn))
-        } else if (!connected && detail != null) {
-            CoreBus.line(run, "[gui] SSTP failed: $detail")
-            CoreBus.vpn(run, false, detail)
-        }
-    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
                 queued = null
-                if (sstpActive) {
-                    stopping = true
-                    CoreBus.stopping = true
-                    updateNotification(getString(R.string.status_stopping))
-                    disconnectFromOryvex()
-                } else {
-                    shutdown()
-                }
+                shutdown()
             }
             ACTION_START -> {
                 goForeground(getString(R.string.status_starting))
@@ -138,28 +110,6 @@ class OryvexVpnService : SstpVpnService() {
         request = req
         CoreBus.begin(req.runId)
         val run = req.runId
-
-        if (req.protocol == "sstp") {
-            val relay = req.sstpAddress?.let(SstpRelayAddress::parse)
-            if (relay == null) {
-                CoreBus.line(run, "[gui] SSTP failed: invalid VPN Gate relay address")
-                CoreBus.vpn(run, false, "Choose a valid VPN Gate *.opengw.net relay.")
-                CoreBus.exit(run, null)
-                stopEverything()
-                return
-            }
-            sstpActive = true
-            CoreBus.line(run, "[gui] sstp: dialing ${relay.first}:${relay.second}")
-            goForeground(getString(R.string.status_connecting))
-            try {
-                connectFromOryvex(relay.first, relay.second, "vpn", "vpn")
-            } catch (e: Throwable) {
-                CoreBus.line(run, "[gui] SSTP failed: ${e.message ?: e.javaClass.simpleName}")
-                CoreBus.vpn(run, false, e.message ?: "Could not start the SSTP engine.")
-                onSstpStartFailed(run)
-            }
-            return
-        }
 
         val bin = File(applicationInfo.nativeLibraryDir, CORE_BINARY)
         if (!bin.exists()) {
@@ -202,12 +152,6 @@ class OryvexVpnService : SstpVpnService() {
             val code = try { proc.waitFor() } catch (_: Throwable) { null }
             main.post { onCoreExit(proc, code) }
         }
-    }
-
-    private fun onSstpStartFailed(run: Long) {
-        sstpActive = false
-        CoreBus.exit(run, null)
-        stopEverything()
     }
 
     private fun onTunnelUp(proc: Process) {
@@ -382,23 +326,17 @@ class OryvexVpnService : SstpVpnService() {
     override fun onRevoke() {
         CoreBus.line(CoreBus.runId, "[gui] the system revoked the VPN (did another VPN take over?)")
         queued = null
-        if (sstpActive) disconnectFromOryvex() else shutdown()
+        shutdown()
     }
 
     override fun onDestroy() {
         cancelTimers()
         val run = request?.runId ?: CoreBus.runId
         closeTun(run)
-        val wasSstp = sstpActive
-        sstpActive = false
         val proc = process
         process = null
         if (proc != null) {
             try { proc.destroy() } catch (_: Throwable) {}
-            CoreBus.exit(run, null)
-        } else if (wasSstp && CoreBus.running) {
-            CoreBus.vpn(run, false)
-            CoreBus.line(run, if (stopping) "[gui] sstp: disconnected" else "[gui] sstp: connection ended")
             CoreBus.exit(run, null)
         }
         super.onDestroy()

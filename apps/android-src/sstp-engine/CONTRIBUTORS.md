@@ -1,2 +1,0 @@
-- [Nicki de Wet](https://github.com/nickidw)
-- [nynauy](https://github.com/nynauy)

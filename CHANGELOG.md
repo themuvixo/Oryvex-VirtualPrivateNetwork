@@ -1,5 +1,15 @@
 # OryvexVPN 1.0.0 (Created by Muvixo)
 
+## Unreleased
+
+- **Tor exit list in the repo**: `oryvexcore/tor/exit-nodes.txt` (1248 exits from check.torproject.org, 2026-11-01) and `tools/update-tor-exits.sh` to refresh it, optionally through the core's Tor proxy.
+- **Website split into pages**: home, about, how to use, app, Tor, docs, creator, download and a real 404 (works at any path on GitHub Pages). Inline SVG icons replace the text glyphs, fonts bundled as woff2, copy buttons on code, accessible mobile menu. Old `#section` links redirect to the new pages. Pages are built from `tools/build-site.py`.
+- **SSTP removed everywhere**: the Android SSTP engine, Windows RAS dialer, VPN Gate lists, settings and docs.
+- **Tor route** on Android and Windows with exit choice: Auto, Fastest (measured) or Country; exit directory fetched through Tor and cached; strict mode.
+- New core module `tor_exits.rs`, flags `--tor-exit`, `--tor-exit-strict`; cargo feature `tor-exit-country` with CI fallback (`scripts/build-core.sh`).
+- Refreshed ink-and-blue palette, responsive hero and bento grid, new Tor exit picker.
+- CI: shared build script, Docker build no longer `--locked` against a stale lock, new `ci.yml` (core tests) and `pages.yml` (website in `site/`).
+
 ## Added
 - **Auto connect (new default).** Tries WireGuard first, then MASQUE, then MASQUE², then Gool,
   and keeps the first one that connects. Each gets 30 / 40 / 50 / 60 s (twice that with the

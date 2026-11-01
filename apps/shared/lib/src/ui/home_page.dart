@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import '../core/args.dart';
 import '../core/controller.dart';
 import '../core/settings.dart';
-import '../core/sstp_servers.dart';
 import 'theme.dart';
 import 'widgets/brand.dart';
 import 'widgets/motion.dart';
@@ -14,6 +13,7 @@ import 'widgets/orb.dart';
 import 'widgets/section.dart';
 import 'widgets/sparkline.dart';
 import 'widgets/steps_view.dart';
+import 'widgets/tor_exit_picker.dart';
 
 /// The Connect page, laid out like an apple.com product page: a small blue eyebrow, a huge
 /// headline that says where you stand, one line of detail, the orb, one call to action. Below
@@ -166,10 +166,7 @@ class _Hero extends StatelessWidget {
     final shown = c.routeProtocol;
     final String route;
     if (s.torOnly) {
-      route = 'Tor only';
-    } else if (shown == 'sstp') {
-      final server = c.sstpConnected;
-      route = server == null ? Choices.protocolLong('sstp') : 'SSTP · ${server.label}';
+      route = 'Tor · ${torExitLabel(c)}';
     } else {
       final carrier = usesMasqueCarrier(shown) ? ' over ${Choices.transports[s.transport]}' : '';
       final autoStep = c.autoStepLabel;
@@ -195,7 +192,7 @@ class _Hero extends StatelessWidget {
       CoreState.stopping => 'Closing the tunnel',
       CoreState.stopped => c.isAuto
           ? 'Auto: WireGuard › MASQUE › MASQUE² › Gool'
-          : (shown == 'sstp' ? route : '$route  ·  ${Choices.scans[s.scan]} scan'),
+          : (s.torOnly ? route : '$route  ·  ${Choices.scans[s.scan]} scan'),
     };
 
     return Column(
@@ -207,11 +204,15 @@ class _Hero extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         BlurSwitcher(
-          child: Text(
-            c.state.headline,
+          child: FittedBox(
             key: ValueKey<CoreState>(c.state),
-            textAlign: TextAlign.center,
-            style: Ox.headline(compact ? 44 : 64),
+            fit: BoxFit.scaleDown,
+            child: Text(
+              c.state.headline,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              style: Ox.headline(compact ? 44 : 64),
+            ),
           ),
         ),
         const SizedBox(height: 10),
@@ -456,7 +457,7 @@ class _Bento extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, box) {
         const gap = 12.0;
-        final cols = box.maxWidth >= 720 ? 4 : 2;
+        final cols = box.maxWidth >= 720 ? 4 : (box.maxWidth >= 340 ? 2 : 1);
         final w = (box.maxWidth - gap * (cols - 1)) / cols;
         final tiles = <Widget>[
           _MetricTile(
@@ -483,13 +484,28 @@ class _Bento extends StatelessWidget {
               foot: on ? 'Tunnel up' : 'Starts when you connect',
             ),
           ),
-          _MetricTile(
-            icon: Icons.hub_outlined,
-            label: 'Gateway',
-            value: c.edge ?? '—',
-            mono: true,
-            foot: c.settings.torOnly ? 'Tor' : Choices.protocolLong(c.routeProtocol),
-          ),
+          if (c.settings.torOnly)
+            _MetricTile(
+              icon: Icons.travel_explore_rounded,
+              label: 'Tor exit',
+              value: c.torExitInUse == null
+                  ? '—'
+                  : (c.torExitInUse == 'auto' ? 'Auto' : c.torExitInUse!.toUpperCase()),
+              mono: true,
+              foot: c.torExitInUse == null
+                  ? torExitLabel(c)
+                  : (c.torExitInUse == 'auto'
+                      ? 'Tor picks by bandwidth'
+                      : '${c.torExits.nameOf(c.torExitInUse!)}${c.torExitMs == null ? '' : ' · ${c.torExitMs} ms'}'),
+            )
+          else
+            _MetricTile(
+              icon: Icons.hub_outlined,
+              label: 'Gateway',
+              value: c.edge ?? '—',
+              mono: true,
+              foot: Choices.protocolLong(c.routeProtocol),
+            ),
         ];
         return Wrap(
           spacing: gap,
@@ -575,32 +591,17 @@ class _RouteAndMode extends StatelessWidget {
         children: [
           Text('Route', style: Ox.headline(22, weight: FontWeight.w600)),
           const SizedBox(height: 14),
-          if (s.torOnly)
-            Text('Tor only is on: the tunnel is skipped. Change it under Settings › Extra exit.',
-                style: Ox.body(15, color: Ox.secondary))
-          else ...[
+          ...[
             ChoicePills(
-              options: Choices.protocolsFor(sstp: c.supportsSstp),
+              options: Choices.protocols,
               value: s.protocol,
               onChanged: (v) => c.updateSettings((x) => x.protocol = v),
             ),
             const SizedBox(height: 10),
             _Hint(Choices.protocolHints[s.protocol] ?? ''),
-            if (s.protocol == 'sstp') ...[
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(child: Text('Server', style: Ox.body(15, weight: FontWeight.w500))),
-                  if (c.sstpRefreshing)
-                    const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  else
-                    OxLink('Refresh list', onTap: () => c.refreshSstpServers()),
-                ],
-              ),
-              const SizedBox(height: 10),
-              _SstpPicker(controller: c),
-              const SizedBox(height: 10),
-              _Hint(_sstpListNote(c)),
+            if (s.usesTorExit) ...[
+              const SizedBox(height: 20),
+              TorExitPicker(controller: c),
             ],
             if (usesMasqueCarrier(s.protocol) || s.protocol == 'auto') ...[
               const SizedBox(height: 18),
@@ -612,7 +613,7 @@ class _RouteAndMode extends StatelessWidget {
                 onChanged: (v) => c.updateSettings((x) => x.transport = v),
               ),
             ],
-            if (s.protocol != 'sstp') ...[
+            if (!s.torOnly) ...[
               const SizedBox(height: 18),
               Text('Scan', style: Ox.body(15, weight: FontWeight.w500)),
               const SizedBox(height: 10),
@@ -641,17 +642,6 @@ class _RouteAndMode extends StatelessWidget {
             child: Text('Mode', style: Ox.headline(22, weight: FontWeight.w600)),
           ),
           const SizedBox(height: 6),
-          if (s.protocol == 'sstp' && !s.torOnly)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-              child: Text(
-                c.backend.isAndroid
-                    ? 'SSTP uses the Android VPN service and routes device traffic through the selected VPN Gate relay.'
-                    : 'SSTP runs in Windows itself: every app on this PC goes through it, with no proxy to set up.',
-                style: Ox.body(15, color: Ox.secondary),
-              ),
-            )
-          else ...[
           if (c.backend.supportsVpn)
             SwitchRow(
               title: 'Whole-device VPN',
@@ -675,9 +665,8 @@ class _RouteAndMode extends StatelessWidget {
           _AddressRow(label: 'SOCKS5', address: '$host:${s.socksPort}'),
           if (showHttp) _AddressRow(label: 'HTTP', address: '$host:${s.httpPort}'),
           if (s.chain == 'tor' && !s.torOnly) _AddressRow(label: 'Tor', address: '$host:${s.torPort}'),
-          if (s.chain == 'psiphon' && c.backend.supportsPsiphon)
+          if (s.chain == 'psiphon' && !s.torOnly && c.backend.supportsPsiphon)
             _AddressRow(label: 'Psiphon', address: '$host:${s.psiphonPort}'),
-          ],
         ],
       ),
     );
@@ -751,66 +740,6 @@ class _AddressRow extends StatelessWidget {
   }
 }
 
-/// "33 servers bundled with the app" / "41 servers · updated 2 h ago".
-String _sstpListNote(CoreController c) {
-  final n = c.sstpServers.length;
-  final at = c.sstpUpdatedAt;
-  final base = at == null ? '$n VPN Gate servers bundled with the app' : '$n VPN Gate servers · updated ${_ago(at)}';
-  return '$base. User and password: vpn.';
-}
-
-String _ago(DateTime t) {
-  final d = DateTime.now().difference(t);
-  if (d.inMinutes < 1) return 'just now';
-  if (d.inHours < 1) return '${d.inMinutes} min ago';
-  if (d.inDays < 1) return '${d.inHours} h ago';
-  return '${d.inDays} d ago';
-}
-
-/// The VPN Gate server SSTP dials. "Best available" tries the top servers in turn.
-class _SstpPicker extends StatelessWidget {
-  const _SstpPicker({required this.controller});
-
-  final CoreController controller;
-
-  static String _label(SstpServer x) {
-    final where = x.country.isEmpty ? x.address : '${x.country} · ${x.address}';
-    return x.ping > 0 ? '$where · ${x.ping} ms' : where;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = controller;
-    final chosen = c.settings.sstpServer;
-    final items = <DropdownMenuItem<String>>[
-      DropdownMenuItem<String>(value: '', child: Text('Best available', style: Ox.body(15))),
-    ];
-    final seen = <String>{''};
-    for (final x in c.sstpServers) {
-      if (!seen.add(x.address)) continue;
-      items.add(DropdownMenuItem<String>(
-        value: x.address,
-        child: Text(_label(x), maxLines: 1, overflow: TextOverflow.ellipsis, style: Ox.body(15)),
-      ));
-    }
-    final value = seen.contains(chosen) ? chosen : '';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(color: Ox.field, borderRadius: BorderRadius.circular(Ox.radiusField)),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          isExpanded: true,
-          dropdownColor: Ox.tile,
-          borderRadius: BorderRadius.circular(14),
-          icon: Icon(Icons.expand_more_rounded, color: Ox.secondary),
-          items: items,
-          onChanged: c.isActive ? null : (v) => c.updateSettings((x) => x.sstpServer = v ?? ''),
-        ),
-      ),
-    );
-  }
-}
 
 /// Who the internet sees: the public address and its country, first thing on the page.
 class _IpCard extends StatelessWidget {
@@ -823,7 +752,7 @@ class _IpCard extends StatelessWidget {
     final c = controller;
     final info = c.ipInfo;
     final on = c.state == CoreState.connected;
-    final protected = on && info != null && (info.viaTunnel || c.activeProtocol == 'sstp');
+    final protected = on && info != null && info.viaTunnel;
     final flag = info?.flag ?? '';
     final String place;
     if (info == null) {

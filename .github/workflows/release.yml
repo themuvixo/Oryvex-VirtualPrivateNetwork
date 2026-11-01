@@ -88,7 +88,8 @@ jobs:
         run: bash scripts/psiphon-build.sh ${{ matrix.goos }} ${{ matrix.goarch }} "$PWD/pt" "" "$PWD/LICENSES"
 
       - name: Build release binary
-        run: cargo build --release --features tor --target ${{ matrix.target }}
+        shell: bash
+        run: bash scripts/build-core.sh cargo build --release --target ${{ matrix.target }}
 
       - name: Collect licenses
         shell: bash
@@ -96,7 +97,7 @@ jobs:
           py=python3
           if [ "$RUNNER_OS" = "Windows" ]; then py=python; fi
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
-          "$py" scripts/third-party-notices.py --target ${{ matrix.target }} --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          "$py" scripts/third-party-notices.py --target ${{ matrix.target }} --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Package archive (Unix)
         if: runner.os != 'Windows'
@@ -180,12 +181,12 @@ jobs:
         run: bash scripts/psiphon-build.sh ${{ matrix.goos }} ${{ matrix.goarch }} "$PWD/pt" "" "$PWD/LICENSES"
 
       - name: Build release binary
-        run: cargo build --release --features tor --target ${{ matrix.target }}
+        run: bash scripts/build-core.sh cargo build --release --target ${{ matrix.target }}
 
       - name: Collect licenses
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
-          python3 scripts/third-party-notices.py --target ${{ matrix.target }} --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          python3 scripts/third-party-notices.py --target ${{ matrix.target }} --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Package archive
         run: |
@@ -249,12 +250,12 @@ jobs:
         run: bash scripts/psiphon-build.sh linux arm "$PWD/pt" 7 "$PWD/LICENSES"
 
       - name: Build release binary
-        run: cargo build --release --features tor --target armv7-unknown-linux-gnueabihf
+        run: bash scripts/build-core.sh cargo build --release --target armv7-unknown-linux-gnueabihf
 
       - name: Collect licenses
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
-          python3 scripts/third-party-notices.py --target armv7-unknown-linux-gnueabihf --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          python3 scripts/third-party-notices.py --target armv7-unknown-linux-gnueabihf --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Package archive
         run: |
@@ -362,12 +363,12 @@ jobs:
         run: bash scripts/psiphon-build.sh linux arm "$PWD/pt" 7 "$PWD/LICENSES"
 
       - name: Build release binary
-        run: cargo build --release --features tor --target armv7-unknown-linux-musleabihf
+        run: bash scripts/build-core.sh cargo build --release --target armv7-unknown-linux-musleabihf
 
       - name: Collect licenses
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
-          python3 scripts/third-party-notices.py --target armv7-unknown-linux-musleabihf --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          python3 scripts/third-party-notices.py --target armv7-unknown-linux-musleabihf --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Package archive
         run: |
@@ -474,12 +475,12 @@ jobs:
         run: bash scripts/psiphon-build.sh ${{ matrix.goos }} ${{ matrix.goarch }} "$PWD/pt" "" "$PWD/LICENSES"
 
       - name: Build release binary
-        run: cargo build --release --features tor --target ${{ matrix.target }}
+        run: bash scripts/build-core.sh cargo build --release --target ${{ matrix.target }}
 
       - name: Collect licenses
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
-          python3 scripts/third-party-notices.py --target ${{ matrix.target }} --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          python3 scripts/third-party-notices.py --target ${{ matrix.target }} --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Package archive
         run: |
@@ -572,7 +573,7 @@ jobs:
         run: |
           under=$(echo "${{ matrix.target }}" | tr '-' '_')
           export "BORING_BSSL_RUST_CPPLIB_${under}=static:-bundle=c++"
-          cargo ndk -t ${{ matrix.abi }} --platform 29 build --release --features tor
+          bash scripts/build-core.sh cargo ndk -t ${{ matrix.abi }} --platform 29 build --release
           bin="target/${{ matrix.target }}/release/oryvexcore"
           needed=$(readelf -d "$bin" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
           echo "[android ${{ matrix.abi }}] oryvexcore NEEDED: $needed"
@@ -583,7 +584,7 @@ jobs:
       - name: Collect licenses
         run: |
           cp ../LICENSE LICENSES/oryvexcore-LICENSE.txt
-          python3 scripts/third-party-notices.py --target ${{ matrix.target }} --features tor --output LICENSES/THIRD-PARTY-NOTICES.txt
+          python3 scripts/third-party-notices.py --target ${{ matrix.target }} --features "${CORE_FEATURES_USED:-tor}" --output LICENSES/THIRD-PARTY-NOTICES.txt
 
       - name: Package archive
         run: |
@@ -654,6 +655,8 @@ jobs:
           files: dist/**/*
           body: |
             OryvexVPN ${{ github.ref_name }}
+
+            New: SSTP is gone; Tor is a route of its own on Android and Windows, with Auto, Fastest or a chosen exit country.
 
             GUI apps (blue and black):
             - Android 5.0+: OryvexVPN-android-arm64-v8a.apk (most phones), -armeabi-v7a.apk (older / low-end), -x86_64.apk, or -universal.apk.

@@ -20,8 +20,8 @@ List<String> buildCoreArgs(
     // No tunnel: protocol, scan and carrier mean nothing, and Tor needs no WARP identity.
     args.add('--tor-only');
   } else {
-    // auto and sstp are the app's own choices: the controller swaps in the protocol each Auto
-    // attempt uses, and SSTP never starts the core. WireGuard is the safe answer if one slips by.
+    // auto is the app's own choice: the controller swaps in the protocol each Auto attempt
+    // uses. WireGuard is the safe answer if one slips by.
     final protocol = Choices.autoOrder.contains(s.protocol) ? s.protocol : Choices.autoOrder.first;
     args.addAll(['--protocol', protocol, '--scan', s.scan]);
     switch (s.ip) {
@@ -51,6 +51,11 @@ List<String> buildCoreArgs(
     if (dns.isNotEmpty) args.addAll(['--dns', dns]);
     final exitLoc = s.exitLoc.trim();
     if (exitLoc.isNotEmpty) args.addAll(['--exit-loc', exitLoc]);
+  }
+
+  if (s.usesTorExit && s.torExit != 'auto') {
+    args.addAll(['--tor-exit', s.torExit]);
+    if (s.torExitStrict) args.add('--tor-exit-strict');
   }
 
   final wantHttp = s.httpProxy || (!android && s.systemProxy);

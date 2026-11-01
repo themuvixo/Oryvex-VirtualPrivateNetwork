@@ -232,8 +232,12 @@ mod with_tor {
     use tor_rtcompat::PreferredRuntime;
 
     use crate::bridges::{Plan, Transport};
+    use crate::tor_exits::{ExitChoice, FASTEST_CANDIDATES};
 
     pub type Client = std::sync::Arc<TorClient<PreferredRuntime>>;
+
+    /// How long one exit country gets to open a test stream before the next is tried.
+    const EXIT_PROBE: Duration = Duration::from_secs(30);
 
     const BOOTSTRAP_RETRY: Duration = Duration::from_secs(10);
     const DIRECT_PROBE: Duration = Duration::from_secs(75);
@@ -786,17 +790,181 @@ mod with_tor {
         }
     }
 
+    // --- the exit ----------------------------------------------------------------------------
+
+    /// What a stream asks of its exit. With the tor-exit-country feature it is arti's own
+    /// stream preferences, which carry the exit country; without it there is nothing to ask.
+    #[cfg(feature = "tor-exit-country")]
+    type Prefs = arti_client::StreamPrefs;
+
+    #[cfg(not(feature = "tor-exit-country"))]
+    #[derive(Debug, Clone)]
+    struct Prefs;
+
+    /// Stream preferences that leave from `cc` (lowercase ISO code). Tor tells the country of
+    /// each relay from its own bundled GeoIP table, so this asks no web service anything.
+    #[cfg(feature = "tor-exit-country")]
+    fn prefs_for(cc: &str) -> Option<Prefs> {
+        let code: tor_geoip::CountryCode = match cc.to_uppercase().parse() {
+            Ok(code) => code,
+            Err(e) => {
+                log::warn!("[-] tor exit: {} is no country tor knows: {e}", cc.to_uppercase());
+                return None;
+            }
+        };
+        let mut prefs = arti_client::StreamPrefs::new();
+        prefs.exit_country(code);
+        Some(prefs)
+    }
+
+    #[cfg(not(feature = "tor-exit-country"))]
+    fn prefs_for(_cc: &str) -> Option<Prefs> {
+        None
+    }
+
+    #[cfg(feature = "tor-exit-country")]
+    async fn dial(
+        client: &Client,
+        host: &str,
+        port: u16,
+        prefs: Option<&Prefs>,
+    ) -> std::result::Result<arti_client::DataStream, arti_client::Error> {
+        match prefs {
+            Some(prefs) => client.connect_with_prefs((host, port), prefs).await,
+            None => client.connect((host, port)).await,
+        }
+    }
+
+    #[cfg(not(feature = "tor-exit-country"))]
+    async fn dial(
+        client: &Client,
+        host: &str,
+        port: u16,
+        _prefs: Option<&Prefs>,
+    ) -> std::result::Result<arti_client::DataStream, arti_client::Error> {
+        client.connect((host, port)).await
+    }
+
+    fn exit_strict() -> bool {
+        matches!(
+            std::env::var("ORYVEXCORE_TOR_EXIT_STRICT")
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase()
+                .as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    }
+
+    const AUTO_LINE: &str = "[+] tor exit: using auto (tor picks a fast exit, weighted by bandwidth)";
+
+    /// Picks the exit the proxy leaves from, as `--tor-exit` asks, and says which in the log:
+    /// every path ends in one "tor exit: using" line the apps wait for.
+    async fn choose_exit(client: &Client, state: &Path) -> Result<Option<Prefs>> {
+        let choice = crate::tor_exits::choice();
+        let dir = crate::tor_exits::load(state);
+        crate::tor_exits::announce(&dir);
+
+        if choice == ExitChoice::Auto {
+            log::info!("{AUTO_LINE}");
+            return Ok(None);
+        }
+        if !cfg!(feature = "tor-exit-country") {
+            log::warn!(
+                "[-] tor exit: this build cannot pick an exit country (it was built without the \
+                 tor-exit-country feature); --tor-exit {} is ignored",
+                choice.label()
+            );
+            log::info!("{AUTO_LINE}");
+            return Ok(None);
+        }
+
+        let (candidates, fastest) = match &choice {
+            ExitChoice::Countries(list) => (list.clone(), false),
+            _ => (dir.fastest_candidates(FASTEST_CANDIDATES), true),
+        };
+        let shown: Vec<String> = candidates.iter().map(|cc| cc.to_uppercase()).collect();
+        if fastest {
+            log::info!(
+                "[*] tor exit: measuring {} countries for the fastest exit: {}",
+                candidates.len(),
+                shown.join(", ")
+            );
+        }
+
+        let (host, port) = proof_target();
+        let mut best: Option<(String, Duration, Prefs)> = None;
+
+        for cc in &candidates {
+            let Some(prefs) = prefs_for(cc) else {
+                continue;
+            };
+            let upper = cc.to_uppercase();
+            log::info!("[*] tor exit: trying {upper} ({})", dir.name_of(cc));
+            let started = std::time::Instant::now();
+            match tokio::time::timeout(EXIT_PROBE, dial(client, &host, port, Some(&prefs))).await {
+                Ok(Ok(_stream)) => {
+                    let took = started.elapsed();
+                    log::info!("[*] tor exit: {upper} answered in {} ms", took.as_millis());
+                    if !fastest {
+                        log::info!(
+                            "[+] tor exit: using {cc} ({}), answered in {} ms",
+                            dir.name_of(cc),
+                            took.as_millis()
+                        );
+                        return Ok(Some(prefs));
+                    }
+                    let better = match &best {
+                        Some((_, held, _)) => took < *held,
+                        None => true,
+                    };
+                    if better {
+                        best = Some((cc.clone(), took, prefs));
+                    }
+                }
+                Ok(Err(e)) => log::warn!("[-] tor exit: {upper} did not answer: {e}"),
+                Err(_) => log::warn!(
+                    "[-] tor exit: {upper} stayed silent for {}s",
+                    EXIT_PROBE.as_secs()
+                ),
+            }
+        }
+
+        if let Some((cc, took, prefs)) = best {
+            log::info!(
+                "[+] tor exit: using {cc} ({}), the fastest at {} ms",
+                dir.name_of(&cc),
+                took.as_millis()
+            );
+            return Ok(Some(prefs));
+        }
+
+        if exit_strict() {
+            return Err(OryvexCoreError::Other(format!(
+                "no tor exit in {} answered, and --tor-exit-strict forbids any other",
+                shown.join(", ")
+            )));
+        }
+        log::warn!(
+            "[-] tor exit: no exit in {} answered; leaving wherever tor picks",
+            shown.join(", ")
+        );
+        log::info!("{AUTO_LINE}");
+        Ok(None)
+    }
+
     async fn serve(
         listener: TcpListener,
         http: Option<TcpListener>,
         client: Client,
+        prefs: Option<Prefs>,
         kind: &'static str,
     ) -> Result<()> {
         let connector = move |host: String, port: u16| {
             let client = client.clone();
+            let prefs = prefs.clone();
             async move {
-                client
-                    .connect((host.as_str(), port))
+                dial(&client, host.as_str(), port, prefs.as_ref())
                     .await
                     .map(|stream| {
                         use tokio_util::compat::FuturesAsyncReadCompatExt;
@@ -877,9 +1045,14 @@ mod with_tor {
 
         let client = establish(&state, Some(through), FOREVER).await?;
         log::info!("[+] tor is ready; {listen} leaves through tor, carried by the tunnel");
+        let prefs = choose_exit(&client, &state).await?;
         announce_exit(listen, "tor through the tunnel");
+        tokio::spawn(crate::tor_exits::refresh_in_background(
+            state.clone(),
+            crate::socks::dialable(listen),
+        ));
 
-        serve(listener, http, client, "tor socks5").await
+        serve(listener, http, client, prefs, "tor socks5").await
     }
 
     /// Tor with no tunnel underneath it, serving `listener`, which the core holds on `listen` from
@@ -895,9 +1068,14 @@ mod with_tor {
 
         let client = establish(&state, None, FOREVER).await?;
         log::info!("[+] tor is ready; {listen} leaves through tor");
+        let prefs = choose_exit(&client, &state).await?;
         announce_exit(listen, "tor");
+        tokio::spawn(crate::tor_exits::refresh_in_background(
+            state.clone(),
+            crate::socks::dialable(listen),
+        ));
 
-        serve(listener, http, client, "tor socks5").await
+        serve(listener, http, client, prefs, "tor socks5").await
     }
 
     /// Starts Tor for the tunnel to be dialled through: its socks5 address, and the handle that
@@ -920,7 +1098,8 @@ mod with_tor {
 
         let serving = tokio::spawn(async move {
             let served = match bind_http().await {
-                Ok(http) => serve(listener, http, client, "tor socks5").await,
+                // The tunnel's own exit is warp's: the tor exit country does not apply here.
+                Ok(http) => serve(listener, http, client, None, "tor socks5").await,
                 Err(e) => Err(e),
             };
             if let Err(e) = served {
@@ -980,6 +1159,8 @@ mod tests {
         std::env::remove_var("ORYVEXCORE_TOR_BIND");
         std::env::remove_var("ORYVEXCORE_TOR_BRIDGES");
         std::env::remove_var("ORYVEXCORE_TOR_PT");
+        std::env::remove_var("ORYVEXCORE_TOR_EXIT");
+        std::env::remove_var("ORYVEXCORE_TOR_EXIT_STRICT");
     }
 
     #[test]

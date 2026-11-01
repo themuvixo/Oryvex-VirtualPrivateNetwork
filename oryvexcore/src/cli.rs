@@ -254,6 +254,15 @@ Tor:
                            for are always skipped
   --tor-dir <path>         where tor keeps its directory cache and state
                            (default <config>-tor beside the identity file)
+  --tor-exit <which>       where the tor proxy leaves: auto (default, tor picks
+                           a fast exit by bandwidth), fastest (measure the exits
+                           of the best-served countries and keep the quickest),
+                           or countries such as de or de,nl,se, the first that
+                           answers. needs a build with the tor-exit-country
+                           feature; the list of exit countries is fetched from
+                           onionoo through tor itself and kept in <tor-dir>
+  --tor-exit-strict        with --tor-exit, fail instead of leaving from any
+                           other country when none of those asked for answers
 
   --psiphon                carry psiphon inside the tunnel: oryvexcore -> warp ->
                            psiphon -> internet, served on --psiphon-bind
@@ -427,6 +436,11 @@ Environment variables:
                                    headway, however far it got (75)
   ORYVEXCORE_TOR_BRIDGE_SECS           the longest any one bridge may take (360)
   ORYVEXCORE_TOR_COUNTRY               ask bridgedb for this country, e.g. ir
+  ORYVEXCORE_TOR_EXIT                  --tor-exit
+  ORYVEXCORE_TOR_EXIT_STRICT           1 for --tor-exit-strict
+  ORYVEXCORE_TOR_EXIT_API              where the exit directory is asked for
+                                   (an onionoo details url, fetched through tor)
+  ORYVEXCORE_TOR_EXIT_REFRESH          1 to fetch the exit directory on every start
   ORYVEXCORE_TOR_CHECK                 host:port tor must reach before it counts as
                                    working (check.torproject.org:443)
   ORYVEXCORE_TOR_LOG                   how loud tor is: info, debug or trace
@@ -595,6 +609,8 @@ pub fn parse_args(args: Vec<String>) -> crate::error::Result<Parsed> {
             "--tor-bind" => set("ORYVEXCORE_TOR_BIND", next_value!()),
             "--tor-http" => set("ORYVEXCORE_TOR_HTTP", next_value!()),
             "--tor-dir" => set("ORYVEXCORE_TOR_DIR", next_value!()),
+            "--tor-exit" => set("ORYVEXCORE_TOR_EXIT", next_value!()),
+            "--tor-exit-strict" => set("ORYVEXCORE_TOR_EXIT_STRICT", "1"),
             "--psiphon" => set("ORYVEXCORE_PSIPHON", "chain"),
             "--psiphon-reverse" => set("ORYVEXCORE_PSIPHON", "reverse"),
             "--psiphon-only" => set("ORYVEXCORE_PSIPHON", "only"),

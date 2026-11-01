@@ -6,14 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CoreSettings {
   CoreSettings();
 
-  /// auto | wg | masque | mim | gool | sstp.
+  /// auto | wg | masque | mim | gool | tor.
   ///
   /// auto tries WireGuard, then MASQUE, then MASQUE², then Gool, and keeps the first one that
-  /// connects. SSTP uses Windows native dialing or the integrated Android engine.
+  /// connects. tor skips the tunnel: the proxy (and on Android the device VPN) is plain Tor.
   String protocol = 'auto';
 
-  /// The VPN Gate server SSTP dials (its address, host or host:port). Empty: the best one.
-  String sstpServer = '';
+  /// Where Tor leaves from, for the Tor route and for "Tor via tunnel": auto (Tor picks by
+  /// bandwidth), fastest (the core measures the best-served countries) or a lowercase country
+  /// code such as de.
+  String torExit = 'auto';
+
+  /// Fail instead of leaving from another country when the chosen exit country does not answer.
+  bool torExitStrict = false;
 
   /// h3 | h2. Only the MASQUE carriers (masque, gool, mim) read it.
   String transport = 'h3';
@@ -36,7 +41,7 @@ class CoreSettings {
   bool fragment = false;
   bool quickReconnect = true;
 
-  /// off | tor (Tor through the tunnel) | tor-only (no tunnel, plain Tor) | psiphon (desktop)
+  /// off | tor (Tor through the tunnel) | psiphon (desktop). Plain Tor is the `tor` protocol.
   String chain = 'off';
 
   /// Where the extra Tor proxy listens with chain == tor. Kept clear of the HTTP port.
@@ -70,15 +75,20 @@ class CoreSettings {
   static const _key = 'oryvexcore.settings.v1';
 
   /// Bumped when the default protocol changed. Settings saved before 2 kept MASQUE only because
-  /// it used to be the default, so they move to Auto once.
-  static const _protocolVersion = 2;
+  /// it used to be the default, so they move to Auto once. 3 removed SSTP and made Tor a route.
+  static const _protocolVersion = 3;
 
-  bool get torOnly => chain == 'tor-only';
+  /// No tunnel: the main proxy is plain Tor.
+  bool get torOnly => protocol == 'tor';
+
+  /// Tor's exit choice is in play for this configuration.
+  bool get usesTorExit => torOnly || chain == 'tor';
 
   Map<String, dynamic> toJson() => {
         'protocol': protocol,
         'protocolVersion': _protocolVersion,
-        'sstpServer': sstpServer,
+        'torExit': torExit,
+        'torExitStrict': torExitStrict,
         'transport': transport,
         'scan': scan,
         'noize': noize,
@@ -119,9 +129,13 @@ class CoreSettings {
       return v is int && v > 0 && v < 65536 ? v : d;
     }
 
+    // Unknown protocols (SSTP, removed in 3) fall back on Auto through the allowed list.
     s.protocol = str('protocol', s.protocol, Choices.protocols);
-    if (j['protocolVersion'] != _protocolVersion && s.protocol == 'masque') s.protocol = 'auto';
-    s.sstpServer = str('sstpServer', s.sstpServer);
+    final version = j['protocolVersion'];
+    if ((version is! int || version < 2) && s.protocol == 'masque') s.protocol = 'auto';
+    final exit = j['torExit'];
+    if (exit is String && Choices.isTorExit(exit)) s.torExit = exit;
+    s.torExitStrict = flag('torExitStrict', s.torExitStrict);
     s.transport = str('transport', s.transport, Choices.transports);
     s.scan = str('scan', s.scan, Choices.scans);
     s.noize = str('noize', s.noize, Choices.noizes);
@@ -135,14 +149,18 @@ class CoreSettings {
     s.torPort = port('torPort', s.torPort);
     s.psiphonPort = port('psiphonPort', s.psiphonPort);
 
-    if (j['chain'] is String && Choices.chains.containsKey(j['chain'])) {
-      s.chain = j['chain'] as String;
+    final chain = j['chain'];
+    if (chain == 'tor-only') {
+      // Before 3, plain Tor was an "extra exit"; it is a route of its own now.
+      s.protocol = 'tor';
+    } else if (chain is String && Choices.chains.containsKey(chain)) {
+      s.chain = chain;
     } else {
       // Settings saved by 2.4.0 kept Tor and Psiphon apart; fold them into one choice.
       final tor = j['tor'];
       final psiphon = j['psiphon'];
       if (tor == 'only') {
-        s.chain = 'tor-only';
+        s.protocol = 'tor';
       } else if (tor == 'chain') {
         s.chain = 'tor';
       } else if (psiphon == 'chain') {
@@ -169,8 +187,8 @@ class CoreSettings {
   Map<String, int> portsInUse({required bool android}) {
     final ports = <String, int>{'SOCKS5': socksPort};
     if (httpProxy || (!android && systemProxy)) ports['HTTP'] = httpPort;
-    if (chain == 'tor') ports['Tor'] = torPort;
-    if (chain == 'psiphon' && !android) ports['Psiphon'] = psiphonPort;
+    if (!torOnly && chain == 'tor') ports['Tor'] = torPort;
+    if (!torOnly && chain == 'psiphon' && !android) ports['Psiphon'] = psiphonPort;
     return ports;
   }
 
@@ -222,12 +240,24 @@ class Choices {
     'masque': 'MASQUE',
     'mim': 'MASQUE²',
     'gool': 'Gool',
-    'sstp': 'SSTP',
+    'tor': 'Tor',
   };
 
-  /// The protocols this platform offers: SSTP needs Windows' built-in SSTP client.
-  static Map<String, String> protocolsFor({required bool sstp}) =>
-      sstp ? protocols : {for (final e in protocols.entries) if (e.key != 'sstp') e.key: e.value};
+  /// `auto`, `fastest` or a lowercase two-letter country code.
+  static bool isTorExit(String v) => v == 'auto' || v == 'fastest' || RegExp(r'^[a-z]{2}$').hasMatch(v);
+
+  /// The three ways to pick a Tor exit, for the segmented control.
+  static const torExitModes = <String, String>{'auto': 'Auto', 'fastest': 'Fastest', 'country': 'Country'};
+
+  static const torExitHints = <String, String>{
+    'auto': 'Tor picks an exit itself, weighted by bandwidth, as Tor Browser does.',
+    'fastest': 'Measures exits in the best-served countries on every connect and keeps the quickest.',
+    'country': 'Leaves from the country you pick. Tor reads where each relay is from its own GeoIP table.',
+  };
+
+  /// Which segment [torExit] belongs to.
+  static String torExitMode(String torExit) =>
+      torExit == 'auto' || torExit == 'fastest' ? torExit : 'country';
 
   /// What Auto tries, in order. The first one that connects wins.
   static const autoOrder = <String>['wg', 'masque', 'mim', 'gool'];
@@ -251,7 +281,7 @@ class Choices {
     'wg': 'Classic WireGuard. Fastest where UDP gets through.',
     'gool': 'WireGuard carried inside MASQUE, for a different exit address.',
     'mim': 'MASQUE carried inside MASQUE, for a different exit address.',
-    'sstp': 'VPN Gate MS-SSTP using the relay DNS hostname and TCP port.',
+    'tor': 'No tunnel: straight into Tor, with bridges when Tor is blocked. Pick the exit below.',
   };
 
   static const transports = <String, String>{'h3': 'HTTP/3', 'h2': 'HTTP/2'};
@@ -292,20 +322,18 @@ class Choices {
   static const chains = <String, String>{
     'off': 'Off',
     'tor': 'Tor via tunnel',
-    'tor-only': 'Tor only',
     'psiphon': 'Psiphon via tunnel',
   };
 
   static const chainHints = <String, String>{
     'off': 'Traffic leaves through the tunnel.',
     'tor': 'Adds a second proxy that exits through Tor, carried inside the tunnel.',
-    'tor-only': 'No tunnel at all: the main proxy is plain Tor (TCP only).',
     'psiphon': 'Adds a second proxy that exits through Psiphon, carried inside the tunnel.',
   };
 
   static String protocolLong(String p) => switch (p) {
         'auto' => 'Auto',
-        'sstp' => 'SSTP · VPN Gate',
+        'tor' => 'Tor',
         'masque' => 'MASQUE',
         'wg' => 'WireGuard',
         'gool' => 'WireGuard in MASQUE',

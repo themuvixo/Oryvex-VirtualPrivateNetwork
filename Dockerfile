@@ -27,7 +27,8 @@ WORKDIR /usr/src/app/oryvexcore
 RUN bash scripts/pt-build.sh linux "$(dpkg --print-architecture)" /usr/src/app/oryvexcore/pt
 RUN bash scripts/psiphon-build.sh linux "$(dpkg --print-architecture)" /usr/src/app/oryvexcore/pt
 
-RUN cargo build --release --locked --features tor
+# Tor with exit-country selection, falling back on plain Tor if that feature does not build.
+RUN bash scripts/build-core.sh cargo build --release
 
 FROM gcr.io/distroless/cc-debian12
 
