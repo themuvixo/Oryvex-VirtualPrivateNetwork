@@ -224,3 +224,4 @@ pre:hover .copy,pre .copy:focus-visible{opacity:1}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .doc-body{min-width:0}
 .split>*{min-width:0}@media (max-width:420px){.mock{padding:18px;border-radius:24px}.seg button{font-size:14px;padding:8px 4px}}
+

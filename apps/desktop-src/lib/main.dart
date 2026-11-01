@@ -2,7 +2,9 @@ import 'package:flutter/widgets.dart';
 import 'package:oryvex_shared/oryvex_shared.dart';
 import 'package:window_manager/window_manager.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  // Started at Windows sign-in with "Start in tray": stay in the tray, no window.
+  final background = args.contains('--background');
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
 
@@ -21,8 +23,10 @@ Future<void> main() async {
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
     await windowManager.setPreventClose(true);
     await windowManager.setResizable(true);
-    await windowManager.show();
-    await windowManager.focus();
+    if (!background) {
+      await windowManager.show();
+      await windowManager.focus();
+    }
   });
   await runOryvex(DesktopBackend());
 }

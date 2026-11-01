@@ -452,27 +452,78 @@ bash oryvexcore.sh</code></pre>
 <p class="muted">OpenWrt routers have their own guide: <a href="{REPO}/blob/main/docs/OPENWRT.md">OPENWRT.md</a></p>
 </div></section>''')
 
-# 404 is served at any missing path, so relative links need the site root as <base>.
-# The repo name comes from the OWNER/OryvexCore string, which tools/set-repo.sh rewrites.
-BASE_SCRIPT = '''<script>(function(){var repo='OWNER/OryvexCore'.split('/')[1],seg=location.pathname.split('/')[1]||'';
-var b=document.createElement('base');b.href=(seg.toLowerCase()===repo.toLowerCase())?'/'+seg+'/':'/';document.head.appendChild(b);})();</script>
-'''
+# 404 is served by GitHub Pages at ANY missing path (/OryvexCore/a/b/c), so relative links and
+# styles would break there. The page carries its CSS and logo inline, then finds the site root:
+# on a project site that is /<repo>/, on a custom domain or user site it is /.
+ROOT_SCRIPT = """<script>(function(){
+var seg=location.pathname.split('/')[1]||'';
+function apply(root){
+  var a=document.querySelectorAll('[data-href]');
+  for(var k=0;k<a.length;k++){a[k].setAttribute('href',root+a[k].getAttribute('data-href'));}
+  var css=document.createElement('link');css.rel='stylesheet';css.href=root+'style.css';document.head.appendChild(css);
+  var ico=document.createElement('link');ico.rel='icon';ico.type='image/svg+xml';ico.href=root+'assets/mark.svg';document.head.appendChild(ico);
+  var js=document.createElement('script');js.src=root+'app.js';document.body.appendChild(js);
+}
+function ready(f){document.readyState==='loading'?document.addEventListener('DOMContentLoaded',f):f();}
+if(!seg||seg.indexOf('.')>-1){ready(function(){apply('/');});return;}
+var done=false;function go(r){if(done)return;done=true;ready(function(){apply(r);});}
+try{fetch('/'+seg+'/app.js',{method:'HEAD',cache:'no-store'}).then(function(r){go(r.ok?'/'+seg+'/':'/');},function(){go('/');});}catch(e){go('/');}
+setTimeout(function(){go('/');},2500);
+})();</script>
+"""
+
 PAGES["404.html"] = ("404", "Page not found",
 "This page doesn't exist on the OryvexVPN site.",
 '''<section class="lost"><div class="wrap">
-<img class="mark" src="assets/mark.svg" alt="" width="220" height="220">
+<div class="mark" aria-hidden="true">@@MARK@@</div>
 <h1>404</h1>
 <p class="lead">No route to this page. It moved, or it never existed.</p>
-<div class="scanlog" aria-hidden="true">scan&nbsp;&nbsp;this address <span class="bad">no answer</span><br>scan&nbsp;&nbsp;home page&nbsp;&nbsp;&nbsp;&nbsp;<span class="ok">200 OK</span></div>
+<div class="scanlog" aria-hidden="true"><div>scan&nbsp;&nbsp;this address&nbsp;&nbsp;<span class="bad">no answer</span></div><div>scan&nbsp;&nbsp;home page&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="ok">200 OK</span></div></div>
 <div class="actions"><a class="btn" href="index.html">{{i:home}}Back home</a><a class="btn ghost" href="docs.html">{{i:book}}Docs</a><a class="btn ghost" href="download.html">{{i:download}}Download</a></div>
-</div></section>''', BASE_SCRIPT)
+</div></section>''', ROOT_SCRIPT)
+
+
+def clean_links(html):
+    """download.html -> download, index.html -> ./  (GitHub Pages serves /download from download.html)."""
+    html = re.sub(r'href="index\.html(#[^"]*)?"', lambda m: 'href="./' + (m.group(1) or '') + '"', html)
+    return re.sub(r'href="([a-z0-9-]+)\.html(#[^"]*)?"', lambda m: f'href="{m.group(1)}{m.group(2) or ""}"', html)
+
+
+def make_404(html, css, mark):
+    # every internal link gets a root-relative fallback plus data-href for the root finder
+    def fix(m):
+        url = m.group(1)
+        if re.match(r'(https?:|mailto:|#|data:)', url):
+            return m.group(0)
+        rel = "" if url == "./" else url
+        return f'href="/{rel}" data-href="{rel}"'
+    html = re.sub(r'href="([^"]*)"', lambda m: m.group(0) if 'rel="stylesheet"' in m.group(0) else fix(m), html)
+    # no external CSS/fonts/icons in <head>: the root finder adds them once it knows the root
+    html = re.sub(r'<link rel="(icon|apple-touch-icon|preload|stylesheet)"[^>]*>\n', "", html)
+    html = re.sub(r'<meta property="og:image"[^>]*>\n', "", html)
+    html = html.replace('<script src="app.js"></script>\n', "")
+    inline = re.sub(r'@font-face\{[^}]*\}\n?', "", css)
+    html = html.replace("</head>", f"<style>{inline}</style>\n</head>")
+    count = [0]
+    def copy(size):
+        # the mark is inlined several times: give each copy its own gradient ids
+        count[0] += 1
+        m = re.sub(r'(id="|url\(#)(ox[A-Za-z]+)', lambda g: f"{g.group(1)}{g.group(2)}{count[0]}", mark)
+        return m.replace('width="512" height="512"', f'width="{size}" height="{size}" aria-hidden="true" focusable="false"')
+    html = re.sub(r'<img src="/?assets/mark\.svg"[^>]*>', lambda _: copy(30), html)
+    return html.replace("@@MARK@@", copy(220))
 
 
 def main():
+    css = (SITE / "style.css").read_text(encoding="utf-8")
+    mark = (SITE / "assets" / "mark.svg").read_text(encoding="utf-8")
+    mark = re.sub(r"<title>.*?</title>\s*", "", mark).strip()
     for fname, spec in PAGES.items():
         key, title, desc, body = spec[:4]
         extra = spec[4] if len(spec) > 4 else ""
-        html = expand(page(key, title, desc, body, extra))
+        html = clean_links(expand(page(key, title, desc, body, extra)))
+        if fname == "404.html":
+            html = make_404(html, css, mark)
         (SITE / fname).write_text(html, encoding="utf-8")
         print("wrote site/" + fname)
 

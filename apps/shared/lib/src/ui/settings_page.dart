@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../core/args.dart';
@@ -47,6 +49,45 @@ class SettingsPage extends StatelessWidget {
                         value: s.darkTheme,
                         onChanged: (v) => set((x) => x.darkTheme = v),
                       ),
+                    ],
+                  ),
+                  OxSection(
+                    title: 'App behaviour',
+                    children: [
+                      SwitchRow(
+                        title: 'Connect on launch',
+                        subtitle: 'Start connecting as soon as OryvexVPN opens',
+                        value: s.autoConnect,
+                        onChanged: (v) => set((x) => x.autoConnect = v),
+                      ),
+                      SwitchRow(
+                        title: 'Auto reconnect',
+                        subtitle: 'Bring the tunnel back by itself if it drops (up to 5 tries)',
+                        value: s.autoReconnect,
+                        onChanged: (v) => set((x) => x.autoReconnect = v),
+                      ),
+                      if (Platform.isWindows) ...[
+                        SwitchRow(
+                          title: 'Launch at Windows sign-in',
+                          subtitle: 'Open OryvexVPN when you log in',
+                          value: s.launchAtStartup,
+                          onChanged: (v) => set((x) => x.launchAtStartup = v),
+                        ),
+                        if (s.launchAtStartup)
+                          SwitchRow(
+                            title: 'Start in tray',
+                            subtitle: 'At sign-in, stay in the tray instead of opening the window',
+                            value: s.startInTray,
+                            onChanged: (v) => set((x) => x.startInTray = v),
+                          ),
+                        ChoiceRow(
+                          label: 'Close button',
+                          options: Choices.closeActions,
+                          value: s.closeAction,
+                          hint: Choices.closeActionHints[s.closeAction],
+                          onChanged: (v) => set((x) => x.closeAction = v),
+                        ),
+                      ],
                     ],
                   ),
                   OxSection(

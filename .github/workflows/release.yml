@@ -637,7 +637,7 @@ jobs:
         run: |
           cd dist
           shopt -s nullglob
-          files=(*.tar.gz *.zip *.apk)
+          files=(*.tar.gz *.zip *.apk *.exe)
           for f in "${files[@]}"; do
             sha256sum "$f" > "$f.sha256"
           done
@@ -660,7 +660,7 @@ jobs:
 
             GUI apps (blue and black):
             - Android 5.0+: OryvexVPN-android-arm64-v8a.apk (most phones), -armeabi-v7a.apk (older / low-end), -x86_64.apk, or -universal.apk.
-            - Windows 10/11 64-bit: OryvexVPN-windows-x64.zip (Flutter desktop app, run OryvexVPN.exe).
+            - Windows 10/11 64-bit: OryvexVPN-Setup-<version>-x64.exe (installer: Program Files, desktop icon, Start menu), or OryvexVPN-windows-x64.zip (portable, run OryvexVPN.exe).
             - Windows 7/8/10/11 32-bit and 64-bit: OryvexVPN-windows-legacy-x86.zip / -x64.zip (OryvexVPN Lite).
 
             Command-line core archives for Linux, macOS, Windows, OpenWrt and Termux are attached too, each with a .sha256; SHA256SUMS.txt lists them all.

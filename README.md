@@ -23,7 +23,7 @@ OryvexCore finds a route that works on your network, opens an encrypted tunnel t
 - **Hard to fingerprint.** Chrome-shaped TLS, ClientHello fragmentation, obfuscation profiles from `light` to `gfw`.
 - **Extra exits.** Tor through the tunnel, Tor alone, or Psiphon through the tunnel (desktop).
 - **Stays up.** Automatic reconnect, and quick reconnect to the last gateway that worked.
-- **Verifies real traffic.** The app waits for HTTPS through the tunnel to return HTTP 200 before showing Connected.
+- **Verifies real traffic.** The app waits for a valid HTTPS response through the tunnel before showing Connected. Public-IP lookup is separate, so a metadata provider outage does not make a working route look broken.
 - **Tor as a route.** Built-in Tor (Arti) on Windows and Android with Auto, Fastest or a chosen exit country; the exit list is fetched through Tor itself.
 - **Runs anywhere.** Windows, Android, Linux, macOS, OpenWrt routers, Termux and Docker.
 
@@ -89,6 +89,8 @@ flutter build apk --release --split-per-abi
 ```
 
 Optional release signing: add the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` secrets. Without them the APKs are signed with the debug key.
+
+**Windows installer**: after `flutter build windows --release` (and copying the core into `Release/core`), run `installer/windows/build-installer.ps1` with NSIS 3 installed (`winget install NSIS.NSIS`). Output: `dist/OryvexVPN-Setup-<version>-x64.exe`. See `installer/windows/README.md`.
 
 **Lite** (Windows, Rust nightly for Windows 7 targets): `cd apps/desktop-lite-src && cargo build --release`.
 

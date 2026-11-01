@@ -114,6 +114,8 @@ class _OryvexAppState extends State<OryvexApp> with WindowListener {
       _trayReady = true;
     } catch (_) {
       _trayReady = false;
+      // Started hidden (--background) but no tray to come back from: show the window.
+      if (!await windowManager.isVisible()) unawaited(_showWindow());
     }
   }
 
@@ -135,6 +137,12 @@ class _OryvexAppState extends State<OryvexApp> with WindowListener {
   Future<void> _askCloseChoice() async {
     final context = _navigatorKey.currentContext;
     if (context == null || !mounted || _closeDialogOpen) return;
+    // A remembered choice from Settings skips the question.
+    final remembered = widget.controller.settings.closeAction;
+    if (remembered == 'quit' || (remembered == 'tray' && _trayReady)) {
+      await _applyCloseChoice(remembered);
+      return;
+    }
     _closeDialogOpen = true;
     final choice = await showGeneralDialog<String>(
       context: context,
@@ -149,6 +157,10 @@ class _OryvexAppState extends State<OryvexApp> with WindowListener {
       },
     );
     _closeDialogOpen = false;
+    if (choice != null) await _applyCloseChoice(choice);
+  }
+
+  Future<void> _applyCloseChoice(String choice) async {
     if (choice == 'tray' && _trayReady) {
       await windowManager.hide();
     } else if (choice == 'quit') {
@@ -479,11 +491,11 @@ class _TopNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tabW = width < 500 ? 64.0 : 88.0;
+    final tabW = width < 460 ? 52.0 : (width < 500 ? 58.0 : 88.0);
     final bar = _Glass(
       child: Container(
         height: topInset + Ox.navHeight,
-        padding: EdgeInsets.only(top: topInset, left: 18, right: Platform.isWindows ? 0 : 14),
+        padding: EdgeInsets.only(top: topInset, left: width < 460 ? 12 : 18, right: Platform.isWindows ? 0 : 14),
         decoration: BoxDecoration(color: Ox.nav, border: Border(bottom: BorderSide(color: Ox.hairlineSoft, width: 0.6))),
         child: Row(children: [
           Expanded(child: Row(children: [const OxMark(size: 22), const SizedBox(width: 9), Flexible(child: OxWordmark(size: width < 420 ? 14 : 17))])),
@@ -530,7 +542,7 @@ class _TopNav extends StatelessWidget {
                 const SizedBox(width: 12),
                 Container(width: 1, height: 20, color: Ox.hairlineSoft),
                 const SizedBox(width: 6),
-                const _WindowControls(),
+                _WindowControls(compact: width < 520),
               ],
             ]),
           )),
@@ -542,7 +554,8 @@ class _TopNav extends StatelessWidget {
 }
 
 class _WindowControls extends StatefulWidget {
-  const _WindowControls();
+  const _WindowControls({this.compact = false});
+  final bool compact;
   @override
   State<_WindowControls> createState() => _WindowControlsState();
 }
@@ -597,14 +610,15 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
     duration: Ox.fast,
     opacity: _focused ? 1 : 0.55,
     child: Row(mainAxisSize: MainAxisSize.min, children: [
-      _CaptionButton(glyph: _Glyph.minimize, label: 'Minimize', onPressed: windowManager.minimize),
+      _CaptionButton(glyph: _Glyph.minimize, label: 'Minimize', onPressed: windowManager.minimize, compact: widget.compact),
       _CaptionButton(
         glyph: _maximized ? _Glyph.restore : _Glyph.maximize,
         label: _maximized ? 'Restore down' : 'Maximize',
         onPressed: _toggleMaximize,
+        compact: widget.compact,
       ),
       // close() goes through setPreventClose, so the "Close OryvexVPN?" dialog still asks.
-      _CaptionButton(glyph: _Glyph.close, label: 'Close', onPressed: windowManager.close, close: true),
+      _CaptionButton(glyph: _Glyph.close, label: 'Close', onPressed: windowManager.close, close: true, compact: widget.compact),
     ]),
   );
 }
@@ -612,11 +626,12 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
 enum _Glyph { minimize, maximize, restore, close }
 
 class _CaptionButton extends StatefulWidget {
-  const _CaptionButton({required this.glyph, required this.label, required this.onPressed, this.close = false});
+  const _CaptionButton({required this.glyph, required this.label, required this.onPressed, this.close = false, this.compact = false});
   final _Glyph glyph;
   final String label;
   final VoidCallback onPressed;
   final bool close;
+  final bool compact;
 
   @override
   State<_CaptionButton> createState() => _CaptionButtonState();
@@ -655,7 +670,7 @@ class _CaptionButtonState extends State<_CaptionButton> {
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 120),
-              width: 46,
+              width: widget.compact ? 34 : 46,
               height: Ox.navHeight,
               color: fill,
               alignment: Alignment.center,

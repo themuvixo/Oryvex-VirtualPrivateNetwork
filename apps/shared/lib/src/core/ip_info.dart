@@ -49,7 +49,9 @@ class IpLookup {
     for (var i = 0; i < endpoints.length; i++) {
       final (host, path) = endpoints[i];
       try {
-        final body = await _get(host, path, socksPort).timeout(timeout);
+        final response = await _request(host, path, socksPort, timeout: timeout);
+        if (response.statusCode != 200) continue;
+        final body = response.body;
         final parsed = i == 0 ? parseCloudflareTrace(body) : parseIpApiJson(body);
         if (parsed != null) {
           return IpInfo(ip: parsed.$1, countryCode: parsed.$2, viaTunnel: throughTunnel, at: DateTime.now());
@@ -59,6 +61,57 @@ class IpLookup {
       }
     }
     return null;
+  }
+
+  /// Confirms HTTPS traffic through the selected route, independently of IP metadata.
+  /// A provider must return its expected response shape/status, so captive portals do not
+  /// count as connectivity. Any single healthy probe is enough to confirm the tunnel.
+  static Future<bool> verifyConnectivity({
+    required int socksPort,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final checks = <Future<bool>>[
+      _probe('www.cloudflare.com', '/cdn-cgi/trace', socksPort, timeout,
+          (r) => acceptsConnectivityResponse('www.cloudflare.com', r.statusCode, r.body)),
+      _probe('connectivitycheck.gstatic.com', '/generate_204', socksPort, timeout,
+          (r) => acceptsConnectivityResponse('connectivitycheck.gstatic.com', r.statusCode, r.body)),
+      _probe('ipapi.co', '/json/', socksPort, timeout,
+          (r) => acceptsConnectivityResponse('ipapi.co', r.statusCode, r.body)),
+    ];
+    final result = Completer<bool>();
+    var remaining = checks.length;
+    for (final check in checks) {
+      unawaited(check.then((ok) {
+        if (ok && !result.isCompleted) result.complete(true);
+        remaining--;
+        if (remaining == 0 && !result.isCompleted) result.complete(false);
+      }));
+    }
+    return result.future;
+  }
+
+  /// Whether a provider returned its expected success response, rather than a proxy error
+  /// or captive-portal page. Kept pure so the verifier's acceptance rules are regression-tested.
+  static bool acceptsConnectivityResponse(String host, int statusCode, String body) => switch (host) {
+        'www.cloudflare.com' => statusCode == 200 && parseCloudflareTrace(body) != null,
+        'connectivitycheck.gstatic.com' => statusCode == 204 && body.isEmpty,
+        'ipapi.co' => statusCode == 200 && parseIpApiJson(body) != null,
+        _ => false,
+      };
+
+  static Future<bool> _probe(
+    String host,
+    String path,
+    int socksPort,
+    Duration timeout,
+    bool Function(_HttpResponse response) accepts,
+  ) async {
+    try {
+      final response = await _request(host, path, socksPort, timeout: timeout);
+      return accepts(response);
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Parses Cloudflare's `ip=...` / `loc=XX` trace format.
@@ -88,22 +141,37 @@ class IpLookup {
     return parsed != null && (parsed.type == InternetAddressType.IPv4 || parsed.type == InternetAddressType.IPv6);
   }
 
-  static Future<String> _get(String host, String path, int? socksPort) async {
+  static Future<_HttpResponse> _request(
+    String host,
+    String path,
+    int? socksPort, {
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
     Socket? raw;
     SecureSocket? tls;
     _Reader? proxyReader;
+    Timer? watchdog;
     try {
       if (socksPort == null) {
-        tls = await SecureSocket.connect(host, 443, timeout: const Duration(seconds: 6), supportedProtocols: const ['http/1.1']);
+        tls = await SecureSocket.connect(host, 443, timeout: timeout, supportedProtocols: const ['http/1.1']);
       } else {
         raw = await Socket.connect(InternetAddress.loopbackIPv4, socksPort, timeout: const Duration(seconds: 4));
+        // Destroy a slow request when its deadline passes, so retries cannot accumulate sockets.
+        watchdog = Timer(timeout, () {
+          tls?.destroy();
+          raw?.destroy();
+        });
         proxyReader = _Reader(raw);
         await _socksConnect(raw, proxyReader, host, 443).timeout(const Duration(seconds: 5));
         await proxyReader.cancel();
         proxyReader = null;
         // host is deliberately the DNS name: TLS chain and hostname validation remain enabled.
-        tls = await SecureSocket.secure(raw, host: host, supportedProtocols: const ['http/1.1']).timeout(const Duration(seconds: 6));
+        tls = await SecureSocket.secure(raw, host: host, supportedProtocols: const ['http/1.1']).timeout(timeout);
       }
+      watchdog ??= Timer(timeout, () {
+        tls?.destroy();
+        raw?.destroy();
+      });
       tls.write('GET $path HTTP/1.1\r\n'
           'Host: $host\r\n'
           'User-Agent: OryvexVPN/1.0\r\n'
@@ -114,20 +182,24 @@ class IpLookup {
       final responseReader = _Reader(tls);
       late final List<int> responseBytes;
       try {
-        responseBytes = await responseReader.rest().timeout(const Duration(seconds: 6));
+        responseBytes = await responseReader.rest().timeout(timeout);
       } finally {
         await responseReader.cancel();
       }
       final response = utf8.decode(responseBytes, allowMalformed: true);
       final split = response.indexOf('\r\n\r\n');
       if (split < 0) throw const FormatException('HTTPS response has no header boundary');
-      final status = response.substring(0, response.indexOf('\r\n'));
-      if (!RegExp(r'^HTTP/1\.[01] 200(?:\s|$)').hasMatch(status)) throw HttpException(status);
-      final headers = response.substring(response.indexOf('\r\n') + 2, split).toLowerCase();
+      final headerEnd = response.indexOf('\r\n');
+      final statusLine = response.substring(0, headerEnd);
+      final statusMatch = RegExp(r'^HTTP/1\.[01] (\d{3})(?:\s|$)').firstMatch(statusLine);
+      if (statusMatch == null) throw FormatException('Invalid HTTPS status line: $statusLine');
+      final statusCode = int.parse(statusMatch.group(1)!);
+      final headers = response.substring(headerEnd + 2, split).toLowerCase();
       var body = response.substring(split + 4);
       if (headers.contains('transfer-encoding: chunked')) body = _unchunk(body);
-      return body;
+      return _HttpResponse(statusCode, body);
     } finally {
+      watchdog?.cancel();
       await proxyReader?.cancel();
       tls?.destroy();
       raw?.destroy();
@@ -185,6 +257,13 @@ class IpLookup {
         throw const SocketException('SOCKS5 sent an unknown address type');
     }
   }
+}
+
+class _HttpResponse {
+  const _HttpResponse(this.statusCode, this.body);
+
+  final int statusCode;
+  final String body;
 }
 
 class _Reader {

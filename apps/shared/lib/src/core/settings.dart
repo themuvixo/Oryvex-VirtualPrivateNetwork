@@ -72,6 +72,23 @@ class CoreSettings {
   bool verbose = false;
   String extraArgs = '';
 
+  // --- App behaviour --------------------------------------------------------------------------
+
+  /// Connect as soon as the app opens.
+  bool autoConnect = false;
+
+  /// Bring the tunnel back by itself when it drops after it was connected.
+  bool autoReconnect = true;
+
+  /// Windows: start OryvexVPN when you sign in (HKCU Run, shared with the installer).
+  bool launchAtStartup = false;
+
+  /// Windows: when started at sign-in, stay in the tray instead of opening the window.
+  bool startInTray = true;
+
+  /// Windows: what the close button does: ask | tray | quit.
+  String closeAction = 'ask';
+
   static const _key = 'oryvexcore.settings.v1';
 
   /// Bumped when the default protocol changed. Settings saved before 2 kept MASQUE only because
@@ -112,6 +129,11 @@ class CoreSettings {
         'systemProxy': systemProxy,
         'verbose': verbose,
         'extraArgs': extraArgs,
+        'autoConnect': autoConnect,
+        'autoReconnect': autoReconnect,
+        'launchAtStartup': launchAtStartup,
+        'startInTray': startInTray,
+        'closeAction': closeAction,
       };
 
   static CoreSettings fromJson(Map<String, dynamic> j) {
@@ -178,6 +200,11 @@ class CoreSettings {
     s.systemProxy = flag('systemProxy', s.systemProxy);
     s.verbose = flag('verbose', s.verbose);
     s.extraArgs = str('extraArgs', s.extraArgs);
+    s.autoConnect = flag('autoConnect', s.autoConnect);
+    s.autoReconnect = flag('autoReconnect', s.autoReconnect);
+    s.launchAtStartup = flag('launchAtStartup', s.launchAtStartup);
+    s.startInTray = flag('startInTray', s.startInTray);
+    s.closeAction = str('closeAction', s.closeAction, Choices.closeActions);
     return s;
   }
 
@@ -233,6 +260,15 @@ class CoreSettings {
 /// Labels for the choices, kept beside the values so the UI and the CLI never drift apart.
 class Choices {
   Choices._();
+
+  /// What the window's close button does (Windows).
+  static const closeActions = <String, String>{'ask': 'Ask', 'tray': 'Tray', 'quit': 'Quit'};
+
+  static const closeActionHints = <String, String>{
+    'ask': 'Ask every time you close the window.',
+    'tray': 'Hide to the tray and keep the VPN running.',
+    'quit': 'Disconnect and close OryvexVPN.',
+  };
 
   static const protocols = <String, String>{
     'auto': 'Auto',

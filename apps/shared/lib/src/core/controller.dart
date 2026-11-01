@@ -13,6 +13,7 @@ import 'settings.dart';
 import 'steps.dart';
 import 'tor_exits.dart';
 import 'win_proxy.dart';
+import 'win_startup.dart';
 
 enum CoreState { stopped, starting, connecting, connected, reconnecting, stopping }
 
@@ -105,6 +106,15 @@ class CoreController extends ChangeNotifier {
   Timer? _verificationTimer;
   bool _switching = false;
 
+  // --- Auto reconnect -------------------------------------------------------------------------
+
+  Timer? _reconnectTimer;
+  int _reconnectTries = 0;
+  static const _maxReconnectTries = 5;
+
+  /// Waiting to bring a dropped connection back (shown on the Connect page).
+  bool get reconnectPending => _reconnectTimer != null;
+
   // --- Tor exits (Windows and Android) --------------------------------------------------------
 
   /// The countries Tor can leave from: the bundled list until the core reports the directory it
@@ -176,6 +186,12 @@ class CoreController extends ChangeNotifier {
     if (Platform.isWindows) {
       // A crash while the system proxy pointed at us must not leave the user offline.
       WinProxy.restore();
+      // The installer may have added (or the user removed) the sign-in entry: trust Windows.
+      final atStartup = WinStartup.isEnabled();
+      if (atStartup != settings.launchAtStartup) {
+        settings.launchAtStartup = atStartup;
+        await settings.save();
+      }
     }
     _sub = backend.events.listen(_onEvent);
     final st = await backend.status();
@@ -192,11 +208,21 @@ class CoreController extends ChangeNotifier {
     }
     _notify();
     unawaited(refreshIp());
+    if (settings.autoConnect && state == CoreState.stopped) {
+      _gui('[gui] connect on launch is on: connecting');
+      unawaited(start());
+    }
   }
 
   Future<void> toggle() async {
     switch (state) {
       case CoreState.stopped:
+        if (_cancelReconnect()) {
+          // The power button while a reconnect waits means "stop trying".
+          _gui('[gui] auto reconnect cancelled');
+          _notify();
+          return;
+        }
         await start();
       case CoreState.stopping:
         break;
@@ -367,7 +393,14 @@ class CoreController extends ChangeNotifier {
   }
 
   Future<void> stop() async {
-    if (state == CoreState.stopped || state == CoreState.stopping) return;
+    final hadPendingReconnect = _cancelReconnect();
+    if (state == CoreState.stopped || state == CoreState.stopping) {
+      if (hadPendingReconnect) {
+        _gui('[gui] auto reconnect cancelled');
+        _notify();
+      }
+      return;
+    }
     if (state == CoreState.starting) {
       // start() (or an Auto switch) is still in flight; it sees this and winds down on its own.
       _cancelRequested = true;
@@ -384,6 +417,31 @@ class CoreController extends ChangeNotifier {
     if (_run == run && state == CoreState.stopping) _markStopped();
     _notify();
     unawaited(refreshIp());
+  }
+
+  /// Cancels a scheduled auto reconnect. Returns whether one was pending.
+  bool _cancelReconnect() {
+    final pending = _reconnectTimer != null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    return pending;
+  }
+
+  /// The tunnel dropped by itself after it had been connected: try again, a few times.
+  void _scheduleReconnect() {
+    if (!settings.autoReconnect || _disposed || _reconnectTimer != null) return;
+    if (_reconnectTries >= _maxReconnectTries) {
+      _gui('[gui] auto reconnect: gave up after $_maxReconnectTries tries');
+      return;
+    }
+    _reconnectTries++;
+    final wait = Duration(seconds: 2 * _reconnectTries + 1);
+    _gui('[gui] auto reconnect: try $_reconnectTries of $_maxReconnectTries in ${wait.inSeconds} s');
+    _reconnectTimer = Timer(wait, () {
+      _reconnectTimer = null;
+      if (_disposed || state != CoreState.stopped) return;
+      unawaited(start());
+    });
   }
 
   void _markStopped() {
@@ -405,7 +463,15 @@ class CoreController extends ChangeNotifier {
   }
 
   Future<void> updateSettings(void Function(CoreSettings s) edit) async {
+    final startupBefore = (settings.launchAtStartup, settings.startInTray);
     edit(settings);
+    if (Platform.isWindows && (settings.launchAtStartup, settings.startInTray) != startupBefore) {
+      if (!WinStartup.apply(enabled: settings.launchAtStartup, inTray: settings.startInTray)) {
+        lastError = 'Windows did not accept the sign-in setting. Try again, or run the installer.';
+        settings.launchAtStartup = WinStartup.isEnabled();
+      }
+    }
+    if (!settings.autoReconnect) _cancelReconnect();
     if (isActive) settingsDirty = true;
     if (!isActive) plan = ConnectionPlan.of(settings, android: backend.isAndroid);
     _notify();
@@ -445,12 +511,14 @@ class CoreController extends ChangeNotifier {
           break;
         }
         final wasStopping = state == CoreState.stopping;
+        final wasUp = state == CoreState.connected || state == CoreState.reconnecting;
         _markStopped();
         if (!wasStopping && lastError == null) {
           lastError = code != null && code != 0
               ? 'The core stopped (exit code $code). Open Activity to see why.'
               : 'The core stopped unexpectedly. Open Activity to see why.';
         }
+        if (!wasStopping && wasUp) _scheduleReconnect();
       case VpnEvent(:final up, :final error):
         vpnUp = up;
         plan.vpn(up);
@@ -492,7 +560,7 @@ class CoreController extends ChangeNotifier {
             state == CoreState.reconnecting ||
             state == CoreState.starting)) {
       // The engine's "ready" line only proves the tunnel handshake. Keep the UI in
-      // Connecting until an HTTPS request through the route returns HTTP 200.
+      // Connecting until a valid HTTPS response is received through the route.
       unawaited(_verifyAndMarkConnected(_run));
     }
     if (isAuto && state == CoreState.connecting && !_switching) {
@@ -609,25 +677,20 @@ class CoreController extends ChangeNotifier {
     _verificationRun = run;
     _attemptTimer?.cancel();
     _attemptTimer = null;
-    _gui('[gui] verify: testing HTTPS through the tunnel (HTTP 200 required)');
+    _gui('[gui] verify: checking HTTPS traffic through the tunnel');
     try {
-      // IpLookup tries two independently hosted HTTPS endpoints and accepts only 200 responses,
-      // always through the local SOCKS proxy (the app itself bypasses its own VPN on Android).
-      final result = await IpLookup.lookup(
-        socksPort: IpLookup.socksPortForRoute(
-          tunnelConnected: true,
-          configuredSocksPort: settings.socksPort,
-        ),
-        throughTunnel: true,
-        // Tor builds a fresh circuit for the first request: give it longer.
-        timeout: Duration(seconds: settings.torOnly ? 20 : 8),
+      // Route health is independent of public-IP metadata: an unavailable lookup provider
+      // must not make a working tunnel look broken. All probes use the local SOCKS route.
+      final verified = await IpLookup.verifyConnectivity(
+        socksPort: settings.socksPort,
+        timeout: Duration(seconds: usesTor ? 20 : 12),
       );
       if (_run != run || state == CoreState.stopped || state == CoreState.stopping) return false;
-      if (result == null) {
-        lastError = 'Tunnel handshake succeeded, but the HTTPS traffic check got no HTTP 200 response. Still verifying, not marked connected.';
+      if (!verified) {
+        lastError = 'No valid HTTPS response through the tunnel yet. Still checking, not marked connected.';
         _gui('[gui] verify: HTTPS check failed; connection is not marked connected');
         if (isAuto && _run == run) {
-          unawaited(_failover(run, 'HTTPS verification did not return HTTP 200'));
+          unawaited(_failover(run, 'HTTPS verification did not receive a valid response'));
         } else if (_run == run && state != CoreState.stopped && state != CoreState.stopping) {
           _verificationTimer?.cancel();
           _verificationTimer = Timer(const Duration(seconds: 5), () {
@@ -639,12 +702,15 @@ class CoreController extends ChangeNotifier {
       }
       final first = connectedAt == null;
       state = CoreState.connected;
+      _reconnectTries = 0;
       connectedAt ??= DateTime.now();
-      ipInfo = result;
+      if (ipInfo?.viaTunnel != true) ipInfo = null;
       lastError = null;
       _attemptTimer?.cancel();
       _attemptTimer = null;
-      _gui('[gui] verify: HTTPS returned 200 via ${result.ip}');
+      _gui('[gui] verify: HTTPS traffic confirmed through the tunnel');
+      // Public-IP metadata is helpful, but should never delay or block connection state.
+      unawaited(refreshIp());
       if (first && isAuto && activeProtocol != null) {
         _gui('[gui] auto: connected with ${Choices.protocolLong(activeProtocol!)}');
       }
@@ -690,6 +756,7 @@ class CoreController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _cancelReconnect();
     _sub?.cancel();
     _notifyTimer?.cancel();
     super.dispose();

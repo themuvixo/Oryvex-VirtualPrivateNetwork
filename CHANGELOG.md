@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Windows installer (NSIS):** installs to Program Files for all users, desktop icon, Start menu entry, optional launch at sign-in, Add/Remove Programs entry, clean upgrade and uninstall (optionally keeps settings). Built in CI as `OryvexVPN-Setup-<version>-x64.exe`; locally with `installer/windows/build-installer.ps1`.
+- **New app options (Settings > App behaviour):** Connect on launch; Auto reconnect when the tunnel drops (up to 5 tries, backing off); Launch at Windows sign-in with Start in tray; remembered close-button action (Ask / Tray / Quit).
+
+- **Connection verification:** validate expected HTTPS responses via independent probes, rather than treating an IP-lookup failure as a broken tunnel. Responsive fallback checks, bounded sockets, and asynchronous IP metadata avoid stuck verification and leaked retries.
+- **Windows caption controls:** keep Minimize, Maximize/Restore, and Close visible at the app’s minimum width; remove duplicate event-stream subscription that could double-process core output.
+
+- **Website clean URLs**: links are `/download`, `/tor`, `/docs`... (no `.html`); opening `download.html` rewrites the address bar to `/download`. The 404 page carries its own CSS and logo and finds the site root itself, so it is styled at any depth (`/repo/a/b/c`) on project pages, user pages and custom domains.
 - **Tor exit list in the repo**: `oryvexcore/tor/exit-nodes.txt` (1248 exits from check.torproject.org, 2026-11-01) and `tools/update-tor-exits.sh` to refresh it, optionally through the core's Tor proxy.
 - **Website split into pages**: home, about, how to use, app, Tor, docs, creator, download and a real 404 (works at any path on GitHub Pages). Inline SVG icons replace the text glyphs, fonts bundled as woff2, copy buttons on code, accessible mobile menu. Old `#section` links redirect to the new pages. Pages are built from `tools/build-site.py`.
 - **SSTP removed everywhere**: the Android SSTP engine, Windows RAS dialer, VPN Gate lists, settings and docs.

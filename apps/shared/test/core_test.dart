@@ -7,6 +7,7 @@ import 'package:oryvex_shared/src/core/settings.dart';
 import 'package:oryvex_shared/src/core/ip_info.dart';
 import 'package:oryvex_shared/src/core/steps.dart';
 import 'package:oryvex_shared/src/core/tor_exits.dart';
+import 'package:oryvex_shared/src/core/win_startup.dart';
 import 'package:oryvex_shared/src/ui/theme.dart';
 
 void main() {
@@ -165,12 +166,49 @@ void main() {
     expect(IpLookup.socksPortForRoute(tunnelConnected: true, configuredSocksPort: 1819), 1819);
   });
 
+  test('connection verification accepts valid HTTPS probe responses, not portal pages', () {
+    expect(IpLookup.acceptsConnectivityResponse('www.cloudflare.com', 200, 'ip=203.0.113.8\nloc=JP\n'), isTrue);
+    expect(IpLookup.acceptsConnectivityResponse('connectivitycheck.gstatic.com', 204, ''), isTrue);
+    expect(IpLookup.acceptsConnectivityResponse('ipapi.co', 200, '{"ip":"203.0.113.8","country_code":"GB"}'), isTrue);
+    expect(IpLookup.acceptsConnectivityResponse('www.cloudflare.com', 200, '<html>sign in</html>'), isFalse);
+    expect(IpLookup.acceptsConnectivityResponse('connectivitycheck.gstatic.com', 200, ''), isFalse);
+    expect(IpLookup.acceptsConnectivityResponse('unknown.example', 200, 'ok'), isFalse);
+  });
+
   test('IP response parsing validates address and country code', () {
     expect(IpLookup.parseCloudflareTrace('ip=203.0.113.8\nloc=JP\n'), ('203.0.113.8', 'JP'));
     expect(IpLookup.parseCloudflareTrace('ip=not-an-ip\nloc=JP'), isNull);
     expect(IpLookup.parseIpApiJson('{"ip":"2001:db8::1","country_code":"gb"}'), ('2001:db8::1', 'GB'));
     expect(IpLookup.parseIpApiJson('{"ip":"bad","country_code":"GB"}'), isNull);
     expect(IpLookup.parseIpApiJson('{"ip":"203.0.113.8","country_code":"USA"}'), ('203.0.113.8', ''));
+  });
+
+  test('app behaviour options round-trip and validate', () {
+    final d = CoreSettings();
+    expect(d.autoConnect, isFalse);
+    expect(d.autoReconnect, isTrue);
+    expect(d.launchAtStartup, isFalse);
+    expect(d.startInTray, isTrue);
+    expect(d.closeAction, 'ask');
+    final s = CoreSettings()
+      ..autoConnect = true
+      ..autoReconnect = false
+      ..launchAtStartup = true
+      ..startInTray = false
+      ..closeAction = 'tray';
+    final back = CoreSettings.fromJson(s.toJson());
+    expect(back.autoConnect, isTrue);
+    expect(back.autoReconnect, isFalse);
+    expect(back.launchAtStartup, isTrue);
+    expect(back.startInTray, isFalse);
+    expect(back.closeAction, 'tray');
+    expect(CoreSettings.fromJson({'closeAction': 'explode'}).closeAction, 'ask');
+  });
+
+  test('sign-in command quotes the exe and adds the tray flag', () {
+    const exe = r'C:\Program Files\OryvexVPN\OryvexVPN.exe';
+    expect(WinStartup.commandFor(exe, inTray: true), '"$exe" --background');
+    expect(WinStartup.commandFor(exe, inTray: false), '"$exe"');
   });
 
   test('extra args honour quotes', () {

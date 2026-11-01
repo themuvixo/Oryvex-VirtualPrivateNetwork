@@ -338,6 +338,22 @@ jobs:
           path: dist/OryvexVPN-windows-x64.zip
           if-no-files-found: error
 
+      - name: Build installer (NSIS)
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue) -and -not (Test-Path $nsis)) {
+            choco install nsis -y --no-progress
+          }
+          ../../installer/windows/build-installer.ps1 -Source build/windows/x64/runner/Release -OutDir ../../dist
+          Get-ChildItem ../../dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OryvexVPN-Setup-x64.exe
+          path: dist/OryvexVPN-Setup-*-x64.exe
+          if-no-files-found: error
+
   # ------------------------------------------------------------------
   # Windows 7 / 8 (and 10 / 11) in 32- and 64-bit: Flutter dropped
   # Windows 7/8 after 3.19 and never shipped 32-bit Windows, so these
