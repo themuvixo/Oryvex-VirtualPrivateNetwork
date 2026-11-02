@@ -4,10 +4,10 @@
 <p align="center"><b>A way out of filtered networks.</b><br>The OryvexCore engine, plus blue-and-black apps for Windows and Android.</p>
 
 <p align="center">
-  <a href="https://github.com/OWNER/OryvexCore/releases/latest">Download</a> ·
+  <a href="https://github.com/themuvixo/Oryvex-VirtualPrivateNetwork/releases/latest">Download</a> ·
   <a href="docs/GUIDE.md">Guide</a> ·
   <a href="docs/TOR.md">Tor exits</a> ·
-  <a href="https://OWNER.github.io/OryvexCore/">Website</a> ·
+  <a href="https://themuvixo.github.io/Oryvex-VirtualPrivateNetwork/">Website</a> ·
   <a href="docs/DOCS.md">Full reference</a> ·
   <a href="docs/OPENWRT.md">OpenWrt</a>
 </p>
@@ -60,7 +60,7 @@ OryvexVPN/
 
 ## Build
 
-Everything is built by GitHub Actions (`.github/workflows/apps.yml` for the apps, `release.yml` for tagged releases). Run `bash tools/set-repo.sh <user>/<repo>` once before your first push to replace the `OWNER/OryvexCore` placeholders.
+Everything is built by GitHub Actions (`.github/workflows/apps.yml` for the apps, `release.yml` for tagged releases). Run `bash tools/set-repo.sh <user>/<repo>` once before your first push to replace the `themuvixo/Oryvex-VirtualPrivateNetwork` placeholders.
 
 **Core** (Rust stable, a C/C++ compiler, CMake):
 
@@ -125,7 +125,7 @@ Keep the `-v` volume: it holds your WARP identity, and a new identity on every s
 ## Termux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/OryvexCore/main/oryvexcore/scripts/oryvexcore.sh -o oryvexcore.sh
+curl -fsSL https://raw.githubusercontent.com/themuvixo/Oryvex-VirtualPrivateNetwork/main/oryvexcore/scripts/oryvexcore.sh -o oryvexcore.sh
 chmod +x oryvexcore.sh && ./oryvexcore.sh install
 ```
 

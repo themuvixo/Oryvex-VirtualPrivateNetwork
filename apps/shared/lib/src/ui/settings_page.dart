@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/args.dart';
 import '../core/controller.dart';
 import '../core/settings.dart';
+import '../core/update_check.dart';
 import 'theme.dart';
 import 'widgets/brand.dart';
 import 'widgets/motion.dart';
@@ -292,6 +294,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const _Updates(),
                   _About(platform: c.backend.platformLabel),
                 ],
               ),
@@ -376,6 +379,70 @@ class _About extends StatelessWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Checks the latest GitHub release and shows whether a newer version is out.
+class _Updates extends StatefulWidget {
+  const _Updates();
+
+  @override
+  State<_Updates> createState() => _UpdatesState();
+}
+
+class _UpdatesState extends State<_Updates> {
+  bool _checking = false;
+  bool _checked = false;
+  UpdateInfo? _info;
+
+  Future<void> _check() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    final info = await checkForUpdate(kAppVersion);
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _checked = true;
+      _info = info;
+    });
+  }
+
+  String get _status {
+    if (_checking) return 'Checking...';
+    if (!_checked) return 'Version $kAppVersion';
+    final i = _info;
+    if (i == null) return 'Could not reach GitHub';
+    if (i.updateAvailable) return 'Version ${i.latestVersion} is out';
+    return 'Up to date';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final i = _info;
+    return OxSection(
+      title: 'Updates',
+      footer: 'Releases come from github.com/$kReleasesRepo.',
+      children: [
+        NavRow(
+          title: 'Check for updates',
+          value: _status,
+          icon: Icons.system_update_alt_rounded,
+          onTap: _checking ? null : _check,
+        ),
+        if (i != null && i.updateAvailable)
+          NavRow(
+            title: 'Copy download link',
+            value: 'v${i.latestVersion}',
+            icon: Icons.link_rounded,
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: i.releaseUrl));
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                const SnackBar(content: Text('Release link copied. Paste it in your browser.')),
+              );
+            },
+          ),
       ],
     );
   }

@@ -656,12 +656,10 @@ jobs:
           body: |
             OryvexVPN ${{ github.ref_name }}
 
-            New: SSTP is gone; Tor is a route of its own on Android and Windows, with Auto, Fastest or a chosen exit country.
-
-            GUI apps (blue and black):
-            - Android 5.0+: OryvexVPN-android-arm64-v8a.apk (most phones), -armeabi-v7a.apk (older / low-end), -x86_64.apk, or -universal.apk.
-            - Windows 10/11 64-bit: OryvexVPN-Setup-<version>-x64.exe (installer: Program Files, desktop icon, Start menu), or OryvexVPN-windows-x64.zip (portable, run OryvexVPN.exe).
+            Downloads:
+            - Windows 10/11 64-bit: OryvexVPN-Setup-<version>-x64.exe (installer), or OryvexVPN-windows-x64.zip (portable).
             - Windows 7/8/10/11 32-bit and 64-bit: OryvexVPN-windows-legacy-x86.zip / -x64.zip (OryvexVPN Lite).
+            - Android 5.0+: OryvexVPN-android-arm64-v8a.apk (most phones), -armeabi-v7a.apk (older phones), -x86_64.apk, or -universal.apk.
 
             Command-line core archives for Linux, macOS, Windows, OpenWrt and Termux are attached too, each with a .sha256; SHA256SUMS.txt lists them all.
 

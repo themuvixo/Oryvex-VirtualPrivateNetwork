@@ -670,58 +670,29 @@ class CoreController extends ChangeNotifier {
     await backend.shutdown();
   }
 
-  /// Verify the tunnel with HTTPS through the core's SOCKS5 proxy before reporting Connected.
+  /// Marks the tunnel connected as soon as the core reports the proxy is ready.
+  /// The HTTPS / HTTP 200 gate was removed on request: the core's handshake and data check decide.
   Future<bool> _verifyAndMarkConnected(int run) async {
-    if (_verificationRun == run || _run != run || state == CoreState.stopped ||
-        state == CoreState.stopping) return false;
-    _verificationRun = run;
+    if (_run != run || state == CoreState.stopped || state == CoreState.stopping) return false;
+    _verificationRun = null;
     _attemptTimer?.cancel();
     _attemptTimer = null;
-    _gui('[gui] verify: checking HTTPS traffic through the tunnel');
-    try {
-      // Route health is independent of public-IP metadata: an unavailable lookup provider
-      // must not make a working tunnel look broken. All probes use the local SOCKS route.
-      final verified = await IpLookup.verifyConnectivity(
-        socksPort: settings.socksPort,
-        timeout: Duration(seconds: usesTor ? 20 : 12),
-      );
-      if (_run != run || state == CoreState.stopped || state == CoreState.stopping) return false;
-      if (!verified) {
-        lastError = 'No valid HTTPS response through the tunnel yet. Still checking, not marked connected.';
-        _gui('[gui] verify: HTTPS check failed; connection is not marked connected');
-        if (isAuto && _run == run) {
-          unawaited(_failover(run, 'HTTPS verification did not receive a valid response'));
-        } else if (_run == run && state != CoreState.stopped && state != CoreState.stopping) {
-          _verificationTimer?.cancel();
-          _verificationTimer = Timer(const Duration(seconds: 5), () {
-            _verificationTimer = null;
-            unawaited(_verifyAndMarkConnected(run));
-          });
-        }
-        return false;
-      }
-      final first = connectedAt == null;
-      state = CoreState.connected;
-      _reconnectTries = 0;
-      connectedAt ??= DateTime.now();
-      if (ipInfo?.viaTunnel != true) ipInfo = null;
-      lastError = null;
-      _attemptTimer?.cancel();
-      _attemptTimer = null;
-      _gui('[gui] verify: HTTPS traffic confirmed through the tunnel');
-      // Public-IP metadata is helpful, but should never delay or block connection state.
-      unawaited(refreshIp());
-      if (first && isAuto && activeProtocol != null) {
-        _gui('[gui] auto: connected with ${Choices.protocolLong(activeProtocol!)}');
-      }
-      _verificationTimer?.cancel();
-      _verificationTimer = null;
-      _notify();
-      return true;
-    } finally {
-      if (_verificationRun == run) _verificationRun = null;
-      _notify();
+    _verificationTimer?.cancel();
+    _verificationTimer = null;
+    final first = connectedAt == null;
+    state = CoreState.connected;
+    _reconnectTries = 0;
+    connectedAt ??= DateTime.now();
+    if (ipInfo?.viaTunnel != true) ipInfo = null;
+    lastError = null;
+    _gui('[gui] connected: tunnel and proxy are up');
+    // Public-IP lookup runs in the background and never blocks the connected state.
+    unawaited(refreshIp());
+    if (first && isAuto && activeProtocol != null) {
+      _gui('[gui] auto: connected with ${Choices.protocolLong(activeProtocol!)}');
     }
+    _notify();
+    return true;
   }
 
   // --- Public address -------------------------------------------------------------------------

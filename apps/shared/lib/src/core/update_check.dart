@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 /// GitHub repo that publishes releases, as "owner/name". Set this before shipping.
-const String kReleasesRepo = 'OWNER/OryvexCore';
+const String kReleasesRepo = 'themuvixo/Oryvex-VirtualPrivateNetwork';
 
 class UpdateInfo {
   const UpdateInfo({

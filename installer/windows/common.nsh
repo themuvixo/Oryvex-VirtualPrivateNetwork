@@ -1,5 +1,5 @@
 ; OryvexVPN Setup: logic shared by the installer and the uninstaller.
-; Both OryvexVPN.nsi variants (custom design and classic) include this file.
+; Included by OryvexVPN.nsi.
 
 !define OX_APP        "OryvexVPN"
 !define OX_EXE        "OryvexVPN.exe"
@@ -10,7 +10,7 @@
 !define OX_APP_KEY    "Software\Muvixo\OryvexVPN"
 !define OX_RUN_KEY    "Software\Microsoft\Windows\CurrentVersion\Run"
 !define OX_INET_KEY   "Software\Microsoft\Windows\CurrentVersion\Internet Settings"
-!define OX_URL        "https://github.com/OWNER/OryvexCore"
+!define OX_URL        "https://github.com/themuvixo/Oryvex-VirtualPrivateNetwork"
 
 !ifndef VERSION
   !define VERSION "1.0.0"
@@ -45,7 +45,7 @@ VIFileVersion "${VERSION}.0"
 !include "nsDialogs.nsh"
 !include "Sections.nsh"
 
-; Choices (the custom page or the components page fills these in; silent installs keep the defaults).
+; Choices (the components page fills these in; silent installs keep the defaults).
 Var OxWantDesktop
 Var OxWantStartMenu
 Var OxWantLogin

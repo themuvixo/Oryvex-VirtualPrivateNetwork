@@ -10,13 +10,11 @@ name: apps
 #   OryvexVPN-windows-legacy-x64.zip    OryvexVPN Lite, Windows 7 / 8 / 10 / 11 64-bit
 #   OryvexVPN-windows-legacy-x86.zip    OryvexVPN Lite, Windows 7 / 8 / 10 / 11 32-bit
 #
-# Runs on its own for pushes and pull requests (artifacts on the run page), and is called by
-# release.yml on a version tag, which publishes everything to the GitHub release.
+# Runs on its own for pull requests (artifacts on the run page), and is called by release.yml
+# on a version tag (auto-release.yml makes one on every push to main), which publishes everything.
 
 on:
-  push:
-    branches: [main, master]
-    paths-ignore: ["**.md", "docs/**", "branding/**", "site/**"]
+  # Pushes to main build through auto-release.yml -> release.yml, so they are not built twice here.
   pull_request:
   workflow_dispatch:
   workflow_call:

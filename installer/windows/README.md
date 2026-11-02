@@ -1,6 +1,6 @@
-# OryvexVPN Setup: custom design
+# OryvexVPN Setup
 
-The app's own look: black canvas, one blue, a dark welcome with the glowing orb, then a single **Make it yours** page (folder, desktop icon, Start menu, launch at sign-in, start in tray), a dark progress page and a dark finish with "Open OryvexVPN now". Built on NSIS Modern UI 2, fully recoloured.
+A standard NSIS Modern UI 2 wizard: Welcome, License, install folder, components (desktop icon, Start menu, start with Windows), progress, Finish with "Launch OryvexVPN".
 
 ## Build
 
