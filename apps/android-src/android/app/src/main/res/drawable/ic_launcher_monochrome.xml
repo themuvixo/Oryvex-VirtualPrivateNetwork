@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13+ themed icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.60"
+        android:scaleY="0.60">
+    <path
+        android:pathData="M391,227.3 A138,138 0 1,1 284.7,121"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="58"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M328.7,151.3 a32,32 0 1,0 64,0 a32,32 0 1,0 -64,0 Z" />
+    </group>
+</vector>
