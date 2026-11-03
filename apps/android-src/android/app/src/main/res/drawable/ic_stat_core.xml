@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the OryvexCore orbit, white on transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:pathData="M391,227.3 A138,138 0 1,1 284.7,121"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="58"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M328.7,151.3 a32,32 0 1,0 64,0 a32,32 0 1,0 -64,0 Z" />
+</vector>

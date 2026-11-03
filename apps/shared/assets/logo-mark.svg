@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>OryvexVPN</title>
+  <defs>
+    <linearGradient id="oxBg" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101318"/>
+      <stop offset="1" stop-color="#000000"/>
+    </linearGradient>
+    <linearGradient id="oxRing" x1="120" y1="110" x2="400" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7CC0FF"/>
+      <stop offset="0.45" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0038C8"/>
+    </linearGradient>
+    <radialGradient id="oxNode" cx="350.7" cy="140.3" r="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#BFE0FF"/>
+      <stop offset="1" stop-color="#4FA3FF"/>
+    </radialGradient>
+    <radialGradient id="oxGlow" cx="256" cy="256" r="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0A84FF" stop-opacity="0.28"/>
+      <stop offset="0.7" stop-color="#0A84FF" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#0A84FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="oxHalo" cx="360.7" cy="151.3" r="76" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5AB0FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5AB0FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- the "O": an orbit with a gap at the upper right -->
+  <path d="M 391.0 227.3 A 138 138 0 1 1 284.7 121.0" fill="none" stroke="url(#oxRing)" stroke-width="58" stroke-linecap="round"/>
+  <!-- the core, slipping out through the gap: a way out -->
+  <circle cx="360.7" cy="151.3" r="76" fill="url(#oxHalo)"/>
+  <circle cx="360.7" cy="151.3" r="32" fill="url(#oxNode)"/>
+</svg>
