@@ -385,12 +385,24 @@ async fn sign_in(settings: &TeamSettings) -> Result<String> {
 }
 
 fn access_client() -> Result<reqwest::Client> {
+    access_client_with_tls_policy(crate::tls::insecure_http_clients())
+}
+
+/// The local HTTPS test server uses a generated self-signed certificate. Keep that exception
+/// in test builds only; the shipped client still verifies certificates by default.
+#[cfg(test)]
+fn test_access_client() -> Result<reqwest::Client> {
+    access_client_with_tls_policy(true)
+}
+
+fn access_client_with_tls_policy(allow_invalid_certificates: bool) -> Result<reqwest::Client> {
     through_upstream(
         reqwest::Client::builder()
             .user_agent(crate::consts::UA_REGISTER)
             .timeout(AUTH_TIMEOUT)
-            // Certificates are checked unless ORYVEXCORE_INSECURE_TLS=1 says otherwise.
-            .danger_accept_invalid_certs(crate::tls::insecure_http_clients())
+            // Production callers pass the explicit opt-out; tests opt in only for the local
+            // server's self-signed certificate.
+            .danger_accept_invalid_certs(allow_invalid_certificates)
             .cookie_store(true)
             // Each request over a connection of its own, as the WARP API calls go: no connection
             // is kept for the next one, over HTTP/1.1 or HTTP/2. The cookies stay with the client.
@@ -989,7 +1001,7 @@ mod tests {
             }
         });
 
-        let client = access_client().expect("the sign-in client");
+        let client = test_access_client().expect("the sign-in client");
         for _ in 0..3 {
             let answer = client
                 .get(format!("https://127.0.0.1:{}/", address.port()))
