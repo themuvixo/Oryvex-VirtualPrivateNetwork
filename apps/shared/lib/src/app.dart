@@ -478,7 +478,32 @@ class _ShellState extends State<Shell> {
     final Widget content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (banner != null) banner,
+        AnimatedSwitcher(
+          duration: Ox.fast,
+          reverseDuration: Ox.fast,
+          switchInCurve: Ox.easeOut,
+          switchOutCurve: Ox.easeIn,
+          transitionBuilder: (child, animation) {
+            final curved = CurvedAnimation(parent: animation, curve: Ox.easeOut, reverseCurve: Ox.easeIn);
+            return SizeTransition(
+              sizeFactor: curved,
+              axisAlignment: -1,
+              child: FadeTransition(
+                opacity: curved,
+                child: SlideTransition(
+                  position: Tween<Offset>(begin: const Offset(0, -0.06), end: Offset.zero).animate(curved),
+                  child: child,
+                ),
+              ),
+            );
+          },
+          child: banner == null
+              ? const SizedBox.shrink(key: ValueKey<String>('update-banner-hidden'))
+              : KeyedSubtree(
+                  key: ValueKey<String>('update-banner-${updateVersion ?? ''}'),
+                  child: banner,
+                ),
+        ),
         Expanded(
           child: MediaQuery(data: pageData, child: PageSwitcher(index: _tab, children: pages)),
         ),
