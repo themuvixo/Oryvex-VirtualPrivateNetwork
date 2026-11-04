@@ -3,6 +3,44 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'country_names.dart';
+import 'flag_codes.dart';
+
+export 'flag_codes.dart';
+
+/// One exit relay in a country: the strongest few per country travel with the directory, so
+/// the app can show what "best exit node" will choose between.
+class TorExitRelay {
+  const TorExitRelay({required this.nickname, this.fingerprint = '', this.bandwidth = 0});
+
+  final String nickname;
+
+  /// Upper-case hex, 40 characters, or "" when the directory did not carry it.
+  final String fingerprint;
+
+  /// Advertised bandwidth in bytes per second.
+  final int bandwidth;
+
+  /// "ABCD 1234 …" for display: the first eight hex digits in two groups.
+  String get shortFingerprint {
+    if (fingerprint.length < 8) return fingerprint;
+    return '${fingerprint.substring(0, 4)} ${fingerprint.substring(4, 8)}';
+  }
+
+  static TorExitRelay? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final nick = raw['nick'] ?? raw['nickname'];
+    if (nick is! String || nick.trim().isEmpty) return null;
+    final fp = raw['fp'] ?? raw['fingerprint'];
+    final bw = raw['bw'] ?? raw['bandwidth'];
+    return TorExitRelay(
+      nickname: nick.trim(),
+      fingerprint: fp is String ? fp.trim().toUpperCase() : '',
+      bandwidth: bw is num ? bw.toInt() : 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'nick': nickname, 'fp': fingerprint, 'bw': bandwidth};
+}
 
 /// One country Tor can leave from, as the core's exit directory lists it.
 class TorExitCountry {
@@ -12,6 +50,7 @@ class TorExitCountry {
     this.relays = 0,
     this.bandwidth = 0,
     this.probability = 0,
+    this.top = const <TorExitRelay>[],
   });
 
   /// Lowercase ISO 3166-1 alpha-2.
@@ -27,7 +66,13 @@ class TorExitCountry {
   /// The share of exit traffic Tor would send there by itself, 0..1.
   final double probability;
 
+  /// Its strongest exit relays, best first (empty for the bundled list).
+  final List<TorExitRelay> top;
+
   String get flag => flagOf(code);
+
+  /// The flag picture inside the package, or null when none ships for this code.
+  String? get flagImage => hasFlagAsset(code) ? flagAsset(code) : null;
 
   /// "412 exits · 18.4 Gbit/s", or "" when the bundled list has no numbers.
   String get detail {
@@ -44,12 +89,21 @@ class TorExitCountry {
     final name = raw['name'];
     int number(Object? v) => v is num ? v.toInt() : 0;
     final p = raw['probability'];
+    final rawTop = raw['top'];
+    final top = <TorExitRelay>[];
+    if (rawTop is List) {
+      for (final r in rawTop) {
+        final relay = TorExitRelay.fromJson(r);
+        if (relay != null) top.add(relay);
+      }
+    }
     return TorExitCountry(
       code: code,
       name: name is String && name.trim().isNotEmpty ? name.trim() : countryName(code),
       relays: number(raw['relays']),
       bandwidth: number(raw['bandwidth']),
       probability: p is num ? p.toDouble() : 0,
+      top: top,
     );
   }
 
@@ -59,6 +113,7 @@ class TorExitCountry {
         'relays': relays,
         'bandwidth': bandwidth,
         'probability': probability,
+        'top': [for (final r in top) r.toJson()],
       };
 }
 
@@ -191,9 +246,13 @@ class TorExitDirectory {
   }
 }
 
-/// Countries that have hosted many Tor exits for years, best served first. Same order as the
-/// core's bundled list (oryvexcore/src/tor_exits.rs).
+/// Every country that has hosted Tor exit relays in recent years, best served first, so the
+/// picker is complete before the live directory arrives. Same order as the core's bundled list
+/// (oryvexcore/src/tor_exits.rs). The live list replaces it after the first Tor connect.
 const bundledTorExitCodes = <String>[
   'de', 'nl', 'us', 'fr', 'se', 'ch', 'fi', 'ro', 'at', 'lu', 'no', 'gb', 'ca', 'pl', 'cz', 'is',
   'md', 'bg', 'dk', 'es', 'it', 'lt', 'lv', 'ee', 'ua', 'hu', 'sg', 'jp', 'hk', 'au', 'br', 'in',
+  'za', 'tr', 'rs', 'tw', 'vn', 'pe', 'az', 'be', 'ie', 'pt', 'gr', 'sk', 'si', 'hr', 'il', 'kr',
+  'nz', 'ar', 'cl', 'mx', 'cr', 'pa', 'ru', 'kz', 'th', 'my', 'id', 'ph', 'ae', 'cy', 'mt', 'li',
+  'sc', 'bz', 'gi', 'ge', 'am', 'al', 'mk', 'ba', 'ec', 'co', 'uy', 'by',
 ];

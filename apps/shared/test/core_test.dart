@@ -14,8 +14,40 @@ void main() {
   test('default settings build a prompt-free command line', () {
     final args = buildCoreArgs(CoreSettings()..protocol = 'masque', configPath: '/tmp/o.toml', android: true);
     expect(args, containsAllInOrder(['--config', '/tmp/o.toml', '--bind', '127.0.0.1:1819']));
-    expect(args, containsAll(['--protocol', 'masque', '--scan', 'balanced', '-4', '--h3']));
+    expect(args, containsAll(['--protocol', 'masque', '--scan', 'balanced', '-4', '--h2']));
     expect(args, contains('--quick-reconnect'));
+  });
+
+  test('HTTP/2 is the default carrier, and old HTTP/3 defaults move to it once', () {
+    expect(CoreSettings().transport, 'h2');
+    expect(Choices.transports.keys.first, 'h2');
+    expect(CoreSettings.fromJson({'transport': 'h3'}).transport, 'h2');
+    final kept = CoreSettings()..transport = 'h3';
+    expect(CoreSettings.fromJson(kept.toJson()).transport, 'h3');
+  });
+
+  test('best exit node is asked for with a single country only', () {
+    final country = buildCoreArgs(CoreSettings()
+      ..protocol = 'tor'
+      ..torExit = 'de', configPath: 'x', android: false);
+    expect(country, containsAllInOrder(['--tor-exit', 'de', '--tor-exit-best']));
+    final off = buildCoreArgs(CoreSettings()
+      ..protocol = 'tor'
+      ..torExit = 'de'
+      ..torExitBest = false, configPath: 'x', android: false);
+    expect(off, isNot(contains('--tor-exit-best')));
+    final fastest = buildCoreArgs(CoreSettings()
+      ..protocol = 'tor'
+      ..torExit = 'fastest', configPath: 'x', android: false);
+    expect(fastest, isNot(contains('--tor-exit-best')));
+  });
+
+  test('every bundled exit country has a flag picture', () {
+    expect(bundledTorExitCodes.length, greaterThanOrEqualTo(60));
+    for (final cc in bundledTorExitCodes) {
+      expect(flagAsset(cc), 'assets/flags/$cc.png');
+      expect(hasFlagAsset(cc), isTrue, reason: cc);
+    }
   });
 
   test('wireguard never gets a MASQUE carrier flag', () {

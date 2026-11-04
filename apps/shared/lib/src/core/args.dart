@@ -54,6 +54,8 @@ List<String> buildCoreArgs(
   if (s.usesTorExit && s.torExit != 'auto') {
     args.addAll(['--tor-exit', s.torExit]);
     if (s.torExitStrict) args.add('--tor-exit-strict');
+    // A single country: measure a few of its exits and keep the quickest circuit.
+    if (s.torExitBest && Choices.torExitMode(s.torExit) == 'country') args.add('--tor-exit-best');
   }
 
   final wantHttp = s.httpProxy || (!android && s.systemProxy);

@@ -21,16 +21,16 @@ class RoutePreset {
     RoutePreset(
       id: 'everyday',
       title: 'Everyday',
-      tagline: 'Auto route, balanced scan',
+      tagline: 'Auto route, HTTP/2, balanced scan',
       apply: (s) {
         s.protocol = 'auto';
         s.scan = 'balanced';
-        s.transport = 'h3';
+        s.transport = 'h2';
         s.noize = 'auto';
         s.fragment = false;
       },
       matches: (s) =>
-          s.protocol == 'auto' && s.scan == 'balanced' && s.transport == 'h3' && s.noize == 'auto' && !s.fragment,
+          s.protocol == 'auto' && s.scan == 'balanced' && s.transport == 'h2' && s.noize == 'auto' && !s.fragment,
     ),
     RoutePreset(
       id: 'speed',

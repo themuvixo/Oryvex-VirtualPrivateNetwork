@@ -20,8 +20,13 @@ class CoreSettings {
   /// Fail instead of leaving from another country when the chosen exit country does not answer.
   bool torExitStrict = false;
 
-  /// h3 | h2. Only the MASQUE carriers (masque, gool, mim) read it.
-  String transport = 'h3';
+  /// With a country picked: measure several exit relays in that country and keep the quickest
+  /// circuit, instead of the first one Tor builds there.
+  bool torExitBest = true;
+
+  /// h2 | h3. Only the MASQUE carriers (masque, gool, mim) read it. HTTP/2 is the default: it
+  /// rides TCP and looks like ordinary HTTPS, so it gets through where QUIC/UDP is filtered.
+  String transport = 'h2';
 
   /// turbo | balanced | thorough | verified | ironclad
   String scan = 'balanced';
@@ -105,6 +110,10 @@ class CoreSettings {
   /// it used to be the default, so they move to Auto once. 3 removed SSTP and made Tor a route.
   static const _protocolVersion = 3;
 
+  /// Bumped when the default carrier changed. Settings saved before 1 kept HTTP/3 only because
+  /// it used to be the default, so they move to HTTP/2 once.
+  static const _carrierVersion = 1;
+
   /// No tunnel: the main proxy is plain Tor.
   bool get torOnly => protocol == 'tor';
 
@@ -116,7 +125,9 @@ class CoreSettings {
         'protocolVersion': _protocolVersion,
         'torExit': torExit,
         'torExitStrict': torExitStrict,
+        'torExitBest': torExitBest,
         'transport': transport,
+        'carrierVersion': _carrierVersion,
         'scan': scan,
         'noize': noize,
         'ip': ip,
@@ -170,7 +181,10 @@ class CoreSettings {
     final exit = j['torExit'];
     if (exit is String && Choices.isTorExit(exit)) s.torExit = exit;
     s.torExitStrict = flag('torExitStrict', s.torExitStrict);
+    s.torExitBest = flag('torExitBest', s.torExitBest);
     s.transport = str('transport', s.transport, Choices.transports);
+    final carrier = j['carrierVersion'];
+    if (carrier is! int || carrier < 1) s.transport = 'h2';
     s.scan = str('scan', s.scan, Choices.scans);
     s.noize = str('noize', s.noize, Choices.noizes);
     s.ip = str('ip', s.ip, Choices.ips);
@@ -306,6 +320,10 @@ class Choices {
     'country': 'Leaves from the country you pick. Tor reads where each relay is from its own GeoIP table.',
   };
 
+  /// How many exit relays "Best exit node" measures in the chosen country (the core's own
+  /// number, kept here for the label).
+  static const torExitBestProbes = 4;
+
   /// Which segment [torExit] belongs to.
   static String torExitMode(String torExit) =>
       torExit == 'auto' || torExit == 'fastest' ? torExit : 'country';
@@ -345,11 +363,12 @@ class Choices {
     'tor': 'No tunnel, straight into Tor',
   };
 
-  static const transports = <String, String>{'h3': 'HTTP/3', 'h2': 'HTTP/2'};
+  /// HTTP/2 first: it is the default carrier.
+  static const transports = <String, String>{'h2': 'HTTP/2', 'h3': 'HTTP/3'};
 
   static const transportHints = <String, String>{
-    'h3': 'QUIC over UDP. Fast, and the default.',
-    'h2': 'Rides TCP. Try it where QUIC or UDP is blocked.',
+    'h2': 'Rides TCP and looks like ordinary HTTPS. The default: it gets through where QUIC is blocked.',
+    'h3': 'QUIC over UDP. The quickest handshake where UDP is healthy.',
   };
 
   static const scans = <String, String>{

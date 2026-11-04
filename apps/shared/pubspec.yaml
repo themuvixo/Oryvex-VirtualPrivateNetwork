@@ -25,6 +25,8 @@ flutter:
     - assets/logo.svg
     - assets/logo-mark.svg
     - assets/app_icon.ico
+    - assets/flags/
+    - assets/protocols/
   fonts:
     - family: Inter
       fonts:

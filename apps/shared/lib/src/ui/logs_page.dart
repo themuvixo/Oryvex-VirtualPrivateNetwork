@@ -122,7 +122,7 @@ class _LogsPageState extends State<LogsPage> {
                   ),
                   const SizedBox(width: 8),
                   _ToolButton(
-                    icon: Icons.delete_sweep_outlined,
+                    icon: Icons.delete_sweep_rounded,
                     tooltip: 'Clear',
                     onTap: widget.controller.clearLogs,
                   ),

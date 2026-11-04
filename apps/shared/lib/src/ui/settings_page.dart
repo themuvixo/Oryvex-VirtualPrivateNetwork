@@ -41,7 +41,7 @@ class SettingsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const PageTitle(eyebrow: 'Make it yours', title: 'Settings'),
+                  PageTitle(eyebrow: 'Make it yours', title: 'Settings'),
                   _Dirty(controller: c),
                   OxSection(
                     title: 'Appearance',
@@ -99,6 +99,7 @@ class SettingsPage extends StatelessWidget {
                     children: [
                       ChoiceRow(
                         label: 'Protocol',
+                        icons: protocolIcons,
                         options: Choices.protocols,
                         value: s.protocol,
                         hint: Choices.protocolHints[s.protocol],
@@ -363,7 +364,7 @@ class _About extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const OxWordmark(size: 22),
+                    OxWordmark(size: 22),
                     const SizedBox(height: 4),
                     Text('Version $kAppVersion · $platform', style: Ox.body(14, color: Ox.secondary)),
                     const SizedBox(height: 2),

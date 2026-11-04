@@ -527,6 +527,7 @@ class CoreController extends ChangeNotifier {
         ..protocol = d.protocol
         ..torExit = d.torExit
         ..torExitStrict = d.torExitStrict
+        ..torExitBest = d.torExitBest
         ..transport = d.transport
         ..scan = d.scan
         ..noize = d.noize
@@ -567,6 +568,7 @@ class CoreController extends ChangeNotifier {
         s.protocol = next.protocol;
         s.torExit = next.torExit;
         s.torExitStrict = next.torExitStrict;
+        s.torExitBest = next.torExitBest;
         s.transport = next.transport;
         s.scan = next.scan;
         s.noize = next.noize;

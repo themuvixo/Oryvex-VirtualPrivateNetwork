@@ -232,7 +232,7 @@ mod with_tor {
     use tor_rtcompat::PreferredRuntime;
 
     use crate::bridges::{Plan, Transport};
-    use crate::tor_exits::{ExitChoice, FASTEST_CANDIDATES};
+    use crate::tor_exits::{ExitChoice, BEST_PROBES, FASTEST_CANDIDATES};
 
     pub type Client = std::sync::Arc<TorClient<PreferredRuntime>>;
 
@@ -838,6 +838,82 @@ mod with_tor {
         client.connect((host, port)).await
     }
 
+    /// The same exit preferences in an isolation group of their own, so a stream dialled with
+    /// them gets a circuit of its own: a separate exit relay to measure. The winner's group is
+    /// kept, which keeps the proxy on the circuit that measured quickest.
+    #[cfg(feature = "tor-exit-country")]
+    fn isolated(prefs: &Prefs) -> Prefs {
+        let mut fresh = prefs.clone();
+        fresh.new_isolation_group();
+        fresh
+    }
+
+    #[cfg(not(feature = "tor-exit-country"))]
+    fn isolated(prefs: &Prefs) -> Prefs {
+        prefs.clone()
+    }
+
+    /// `--tor-exit-best`: opens [BEST_PROBES] test streams through exits in `cc` side by side,
+    /// each on its own circuit, and returns the quickest one's preferences, its time, the
+    /// slowest answer and how many answered. None when no circuit there answered.
+    async fn best_in_country(
+        client: &Client,
+        cc: &str,
+        base: &Prefs,
+        host: &str,
+        port: u16,
+    ) -> Option<(Prefs, Duration, Duration, usize)> {
+        let upper = cc.to_uppercase();
+        let probes = (0..BEST_PROBES).map(|_| {
+            let client = client.clone();
+            let host = host.to_string();
+            let prefs = isolated(base);
+            async move {
+                let started = std::time::Instant::now();
+                let outcome =
+                    tokio::time::timeout(EXIT_PROBE, dial(&client, &host, port, Some(&prefs))).await;
+                (prefs, started.elapsed(), outcome)
+            }
+        });
+        let results = futures::future::join_all(probes).await;
+
+        let mut answered = 0usize;
+        let mut slowest = Duration::ZERO;
+        let mut best: Option<(Prefs, Duration)> = None;
+        for (n, (prefs, took, outcome)) in results.into_iter().enumerate() {
+            match outcome {
+                Ok(Ok(_stream)) => {
+                    answered += 1;
+                    log::info!(
+                        "[*] tor exit: {upper} circuit {} of {BEST_PROBES} answered in {} ms",
+                        n + 1,
+                        took.as_millis()
+                    );
+                    if took > slowest {
+                        slowest = took;
+                    }
+                    let better = match &best {
+                        Some((_, held)) => took < *held,
+                        None => true,
+                    };
+                    if better {
+                        best = Some((prefs, took));
+                    }
+                }
+                Ok(Err(e)) => log::warn!(
+                    "[-] tor exit: {upper} circuit {} of {BEST_PROBES} did not answer: {e}",
+                    n + 1
+                ),
+                Err(_) => log::warn!(
+                    "[-] tor exit: {upper} circuit {} of {BEST_PROBES} stayed silent for {}s",
+                    n + 1,
+                    EXIT_PROBE.as_secs()
+                ),
+            }
+        }
+        best.map(|(prefs, took)| (prefs, took, slowest, answered))
+    }
+
     fn exit_strict() -> bool {
         matches!(
             std::env::var("ORYVEXCORE_TOR_EXIT_STRICT")
@@ -887,12 +963,38 @@ mod with_tor {
 
         let (host, port) = proof_target();
         let mut best: Option<(String, Duration, Prefs)> = None;
+        let best_node = !fastest && crate::tor_exits::best_node();
 
         for cc in &candidates {
             let Some(prefs) = prefs_for(cc) else {
                 continue;
             };
             let upper = cc.to_uppercase();
+            if best_node {
+                log::info!(
+                    "[*] tor exit: trying {upper} ({}), measuring {BEST_PROBES} exits for the best one",
+                    dir.name_of(cc)
+                );
+                match best_in_country(client, cc, &prefs, &host, port).await {
+                    Some((chosen, took, slowest, answered)) => {
+                        log::info!(
+                            "[=] tor-exit-best {{\"cc\":\"{cc}\",\"probes\":{BEST_PROBES},\"answered\":{answered},\"ms\":{},\"slowest_ms\":{}}}",
+                            took.as_millis(),
+                            slowest.as_millis()
+                        );
+                        log::info!(
+                            "[+] tor exit: using {cc} ({}), the best of {answered} exits, answered in {} ms",
+                            dir.name_of(cc),
+                            took.as_millis()
+                        );
+                        return Ok(Some(chosen));
+                    }
+                    None => {
+                        log::warn!("[-] tor exit: no exit in {upper} answered");
+                        continue;
+                    }
+                }
+            }
             log::info!("[*] tor exit: trying {upper} ({})", dir.name_of(cc));
             let started = std::time::Instant::now();
             match tokio::time::timeout(EXIT_PROBE, dial(client, &host, port, Some(&prefs))).await {
@@ -1151,6 +1253,7 @@ mod tests {
         std::env::remove_var("ORYVEXCORE_TOR_PT");
         std::env::remove_var("ORYVEXCORE_TOR_EXIT");
         std::env::remove_var("ORYVEXCORE_TOR_EXIT_STRICT");
+        std::env::remove_var("ORYVEXCORE_TOR_EXIT_BEST");
     }
 
     #[test]

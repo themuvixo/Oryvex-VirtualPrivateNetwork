@@ -1,29 +1,39 @@
 import 'package:flutter/material.dart';
 
-/// OryvexVPN design tokens, after apple.com.
+/// OryvexVPN design tokens.
 ///
-/// apple.com's light canvas: #F5F5F7 behind everything, white tiles with big soft corners and
-/// barely-there shadows, #1D1D1F type set large and tight, #6E6E73 for everything secondary,
-/// and one blue, #0071E3, for links, "on" and the filled call to action. Inter (the closest
-/// open face to SF Pro) for text, Inter Display for headlines, JetBrains Mono (closest to SF
-/// Mono) for addresses and logs. All three ship inside the app: nothing is fetched at runtime.
+/// One colour theme, two appearances. Ink: a near-black canvas with a faint blue cast, tiles
+/// lifted one step with a hairline edge. Paper: a cool grey canvas with white tiles and soft
+/// shadows. Both share one electric blue (#0A6CFF) for every action and every "on"; text that
+/// is blue uses [link], which is lifted on ink so it stays readable. Inter for text, Inter
+/// Display for headlines, JetBrains Mono for addresses and logs, all bundled.
+///
+/// The surface colours are switched as a group by [setDarkMode]. Widgets read them while they
+/// build, so the app rebuilds every element when the appearance changes (see app.dart): no
+/// widget, const or not, can keep a colour from the other appearance.
 class Ox {
   Ox._();
 
-  // Surfaces: switched as a group so custom controls follow the saved appearance setting.
   static const black = Color(0xFF000000);
   static bool darkMode = true;
-  // Dark: an ink-black canvas with a faint blue cast, tiles lifted by one step and a hairline.
-  static Color canvas = const Color(0xFF06080C);
-  static Color nav = const Color(0xE00B0E14);
-  static Color tile = const Color(0xFF10141B);
-  static Color tileHi = const Color(0xFF1E2530);
-  static Color tileTop = const Color(0xFF1A202A);
-  static Color field = const Color(0xFF161B23);
-  static Color hairline = const Color(0xFF2A3240);
-  static Color hairlineSoft = const Color(0xFF1C222C);
 
-  // Blue: one electric blue for every action and every "on", readable on ink and on white.
+  /// Bumped on every appearance change, for painters that cache what they drew.
+  static int palette = 0;
+
+  // Surfaces
+  static Color canvas = const Color(0xFF06080C);
+  static Color nav = const Color(0xE60A0D13);
+  static Color tile = const Color(0xFF0F131A);
+  static Color tileHi = const Color(0xFF1C232E);
+  static Color tileTop = const Color(0xFF283141);
+  static Color field = const Color(0xFF151A23);
+  static Color hairline = const Color(0xFF2A3240);
+  static Color hairlineSoft = const Color(0xFF1B212B);
+
+  /// A wash for hover, pressed and "selected" fills that works on any surface.
+  static Color overlay = const Color(0x0FFFFFFF);
+
+  // Blue: the one accent. Unchanged across appearances.
   static const blue = Color(0xFF0A6CFF);
   static const blueCta = Color(0xFF0A6CFF);
   static const blueCtaHi = Color(0xFF2A80FF); // its hover
@@ -31,20 +41,23 @@ class Ox {
   static const blueDeep = Color(0xFF0046D5);
   static const blueIce = Color(0xFF8CC2FF);
 
+  /// Blue for text and small glyphs: lifted on ink, the full blue on paper.
+  static Color link = const Color(0xFF5AA5FF);
+
+  /// A blue-tinted fill for selected tiles and "on" capsules.
+  static Color blueWash = const Color(0x290A6CFF);
+
   // Type
   static Color text = const Color(0xFFF4F6FA);
-  static Color secondary = const Color(0xFFA7B0BF);
-  static Color tertiary = const Color(0xFF7E899A);
+  static Color secondary = const Color(0xFFAEB7C6);
+  static Color tertiary = const Color(0xFF8590A2);
 
   // States
   static const danger = Color(0xFFE3342F);
+  static const success = Color(0xFF34C759);
   static Color warn = const Color(0xFFFFB454);
 
-  /// The soft lift apple.com gives its tiles.
-  static List<BoxShadow> tileShadow = const <BoxShadow>[
-    BoxShadow(color: Color(0x44000000), blurRadius: 24, offset: Offset(0, 8)),
-    BoxShadow(color: Color(0x22000000), blurRadius: 3, offset: Offset(0, 1)),
-  ];
+  static List<BoxShadow> tileShadow = const <BoxShadow>[];
 
   // Fonts bundled by the oryvex_shared package (fonts/, SIL OFL 1.1). A font a package bundles
   // is only found under "packages/<package>/<family>".
@@ -63,23 +76,29 @@ class Ox {
   static Color get surface => tile;
 
   static void setDarkMode(bool dark) {
+    if (dark != darkMode) palette++;
     darkMode = dark;
-    canvas = dark ? const Color(0xFF06080C) : const Color(0xFFF5F5F7);
-    nav = dark ? const Color(0xE00B0E14) : const Color(0xD9FBFBFD);
-    tile = dark ? const Color(0xFF10141B) : const Color(0xFFFFFFFF);
-    tileHi = dark ? const Color(0xFF1E2530) : const Color(0xFFE8E8ED);
-    tileTop = dark ? const Color(0xFF1A202A) : const Color(0xFFFFFFFF);
-    field = dark ? const Color(0xFF161B23) : const Color(0xFFF0F0F3);
-    hairline = dark ? const Color(0xFF2A3240) : const Color(0xFFD2D2D7);
-    hairlineSoft = dark ? const Color(0xFF1C222C) : const Color(0xFFE6E6EB);
-    text = dark ? const Color(0xFFF4F6FA) : const Color(0xFF1D1D1F);
-    secondary = dark ? const Color(0xFFA7B0BF) : const Color(0xFF6E6E73);
-    tertiary = dark ? const Color(0xFF7E899A) : const Color(0xFF86868B);
-    warn = dark ? const Color(0xFFFFB454) : const Color(0xFFC25E00);
-    tileShadow = dark ? const <BoxShadow>[] : const <BoxShadow>[
-      BoxShadow(color: Color(0x0F000000), blurRadius: 24, offset: Offset(0, 8)),
-      BoxShadow(color: Color(0x08000000), blurRadius: 3, offset: Offset(0, 1)),
-    ];
+    canvas = dark ? const Color(0xFF06080C) : const Color(0xFFF2F3F7);
+    nav = dark ? const Color(0xE60A0D13) : const Color(0xE6FBFBFD);
+    tile = dark ? const Color(0xFF0F131A) : const Color(0xFFFFFFFF);
+    tileHi = dark ? const Color(0xFF1C232E) : const Color(0xFFE6E8EE);
+    tileTop = dark ? const Color(0xFF283141) : const Color(0xFFFFFFFF);
+    field = dark ? const Color(0xFF151A23) : const Color(0xFFEEF0F4);
+    hairline = dark ? const Color(0xFF2A3240) : const Color(0xFFD2D5DC);
+    hairlineSoft = dark ? const Color(0xFF1B212B) : const Color(0xFFE3E5EA);
+    overlay = dark ? const Color(0x0FFFFFFF) : const Color(0x0D000000);
+    link = dark ? const Color(0xFF5AA5FF) : const Color(0xFF0A6CFF);
+    blueWash = dark ? const Color(0x290A6CFF) : const Color(0x1A0A6CFF);
+    text = dark ? const Color(0xFFF4F6FA) : const Color(0xFF111318);
+    secondary = dark ? const Color(0xFFAEB7C6) : const Color(0xFF555B69);
+    tertiary = dark ? const Color(0xFF8590A2) : const Color(0xFF6E7482);
+    warn = dark ? const Color(0xFFFFB454) : const Color(0xFFB45309);
+    tileShadow = dark
+        ? const <BoxShadow>[]
+        : const <BoxShadow>[
+            BoxShadow(color: Color(0x12101828), blurRadius: 24, offset: Offset(0, 8)),
+            BoxShadow(color: Color(0x0A101828), blurRadius: 3, offset: Offset(0, 1)),
+          ];
   }
 
   // Geometry
@@ -130,7 +149,7 @@ class Ox {
         height: 1.3,
         fontWeight: FontWeight.w600,
         letterSpacing: -0.1,
-        color: color ?? blue,
+        color: color ?? link,
       );
 
   static TextStyle code(double size, {Color? color, FontWeight weight = FontWeight.w400, double height = 1.5}) =>
@@ -242,7 +261,7 @@ ThemeData buildOxTheme({required bool dark}) {
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
     splashColor: Colors.transparent,
-    hoverColor: Colors.black.withValues(alpha: 0.04),
+    hoverColor: Ox.overlay,
     focusColor: Ox.blue.withValues(alpha: 0.22),
     visualDensity: VisualDensity.standard,
     pageTransitionsTheme: transitions,
@@ -263,8 +282,8 @@ ThemeData buildOxTheme({required bool dark}) {
       trackColor: WidgetStateProperty.resolveWith((s) {
         if (s.contains(WidgetState.disabled)) return Ox.tileHi;
         return s.contains(WidgetState.selected)
-            ? const Color(0xFF34C759)
-            : (dark ? const Color(0xFF454D5A) : const Color(0xFFE9E9EB));
+            ? Ox.success
+            : (dark ? const Color(0xFF3A4352) : const Color(0xFFD9DCE3));
       }),
       trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       thumbIcon: const WidgetStatePropertyAll(null),
@@ -274,7 +293,7 @@ ThemeData buildOxTheme({required bool dark}) {
       fillColor: Ox.field,
       isDense: true,
       labelStyle: Ox.body(15, color: Ox.secondary),
-      floatingLabelStyle: Ox.body(14, color: Ox.blue),
+      floatingLabelStyle: Ox.body(14, color: Ox.link),
       hintStyle: Ox.body(15, color: Ox.tertiary),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
@@ -300,7 +319,7 @@ ThemeData buildOxTheme({required bool dark}) {
       selectionHandleColor: Ox.blue,
     ),
     scrollbarTheme: ScrollbarThemeData(
-      thumbColor: WidgetStatePropertyAll(Colors.black.withValues(alpha: 0.22)),
+      thumbColor: WidgetStatePropertyAll(dark ? Colors.white.withValues(alpha: 0.22) : Colors.black.withValues(alpha: 0.22)),
       radius: const Radius.circular(8),
       thickness: const WidgetStatePropertyAll(6),
     ),
@@ -349,5 +368,28 @@ ThemeData buildOxTheme({required bool dark}) {
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(color: Ox.blue, linearTrackColor: Ox.tileHi),
     iconTheme: IconThemeData(color: Ox.text),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: Ox.tile,
+      surfaceTintColor: Colors.transparent,
+      modalBackgroundColor: Ox.tile,
+      showDragHandle: false,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(Ox.radiusTile))),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: Ox.tile,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: Ox.blueCta,
+        foregroundColor: Colors.white,
+        textStyle: Ox.body(15, weight: FontWeight.w600),
+        shape: const StadiumBorder(),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(foregroundColor: Ox.link, textStyle: Ox.body(15, weight: FontWeight.w600)),
+    ),
   );
 }

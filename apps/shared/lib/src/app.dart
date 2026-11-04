@@ -51,6 +51,14 @@ class OryvexApp extends StatefulWidget {
 }
 
 class _OryvexAppState extends State<OryvexApp> with WindowListener {
+  bool? _lastDark;
+
+  /// Marks every element for a rebuild, so widgets that read the Ox palette while they build
+  /// (const ones included, which Flutter would otherwise skip) pick up the new appearance.
+  static void _rebuildAll(Element e) {
+    e.markNeedsBuild();
+    e.visitChildren(_rebuildAll);
+  }
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final SystemTray _systemTray = SystemTray();
   bool _trayReady = false;
@@ -184,6 +192,12 @@ class _OryvexAppState extends State<OryvexApp> with WindowListener {
       builder: (context, _) {
         final dark = widget.controller.settings.darkTheme;
         Ox.setDarkMode(dark);
+        if (_lastDark != null && _lastDark != dark) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) (context as Element).visitChildren(_rebuildAll);
+          });
+        }
+        _lastDark = dark;
         if (Platform.isAndroid) {
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
@@ -314,7 +328,7 @@ class _CloseChoiceDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final options = <Widget>[
       if (trayReady)
-        _CloseOption(icon: Icons.notifications_active_outlined, title: 'Keep running in tray', subtitle: 'Hide the window, leave the VPN running', value: 'tray'),
+        _CloseOption(icon: Icons.notifications_active_rounded, title: 'Keep running in tray', subtitle: 'Hide the window, leave the VPN running', value: 'tray'),
       _CloseOption(icon: Icons.power_settings_new_rounded, title: 'Quit OryvexVPN', subtitle: 'Disconnect and close the app', value: 'quit'),
       _CloseOption(icon: Icons.arrow_back_rounded, title: 'Cancel', subtitle: 'Go back to the app', value: 'cancel'),
     ];
@@ -510,7 +524,7 @@ class _TopNav extends StatelessWidget {
                 top: 0,
                 bottom: 0,
                 width: tabW,
-                child: Container(decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(99))),
+                child: Container(decoration: BoxDecoration(color: Ox.tileHi, borderRadius: BorderRadius.circular(99))),
               ),
               Row(children: [
                 for (var i = 0; i < _destinations.length; i++)
@@ -751,7 +765,7 @@ class _TabBar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Ox.nav,
                   borderRadius: BorderRadius.circular(32),
-                  border: Border.all(color: Colors.black.withValues(alpha: 0.06), width: 0.8),
+                  border: Border.all(color: Ox.hairlineSoft, width: 0.8),
                 ),
                 child: LayoutBuilder(
                   builder: (context, box) {
@@ -767,7 +781,7 @@ class _TabBar extends StatelessWidget {
                           width: seg,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.06),
+                              color: Ox.blueWash,
                               borderRadius: BorderRadius.circular(26),
                             ),
                           ),
@@ -807,7 +821,7 @@ class _TabItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? Ox.blue : Ox.secondary;
+    final color = selected ? Ox.link : Ox.secondary;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [

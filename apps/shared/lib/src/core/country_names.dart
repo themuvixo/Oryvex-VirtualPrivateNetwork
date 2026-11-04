@@ -70,6 +70,7 @@ const _countries = <String, String>{
   'GD': 'Grenada',
   'GE': 'Georgia',
   'GH': 'Ghana',
+  'GI': 'Gibraltar',
   'GM': 'Gambia',
   'GN': 'Guinea',
   'GQ': 'Equatorial Guinea',

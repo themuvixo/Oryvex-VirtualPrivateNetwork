@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme.dart';
 import 'motion.dart';
@@ -200,7 +201,7 @@ class Segmented extends StatelessWidget {
                 width: seg,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Ox.tileTop,
+                    color: Ox.darkMode ? Ox.tileTop : Ox.tile,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: [
                       BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 6, offset: const Offset(0, 2)),
@@ -250,11 +251,24 @@ class Segmented extends StatelessWidget {
   }
 }
 
-/// A wrap of single-choice pills bound to a string value.
+/// The route icons in assets/protocols, by protocol id.
+const protocolIcons = <String, String>{
+  'auto': 'assets/protocols/auto.svg',
+  'wg': 'assets/protocols/wg.svg',
+  'masque': 'assets/protocols/masque.svg',
+  'mim': 'assets/protocols/mim.svg',
+  'gool': 'assets/protocols/gool.svg',
+  'tor': 'assets/protocols/tor.svg',
+};
+
+/// A wrap of single-choice pills bound to a string value, each with an optional icon.
 class ChoicePills extends StatelessWidget {
-  const ChoicePills({super.key, required this.options, required this.value, required this.onChanged});
+  const ChoicePills({super.key, required this.options, required this.value, required this.onChanged, this.icons});
 
   final Map<String, String> options;
+
+  /// SVG assets (inside oryvex_shared) drawn before each label, by option key.
+  final Map<String, String>? icons;
   final String value;
   final ValueChanged<String> onChanged;
 
@@ -272,7 +286,7 @@ class ChoicePills extends StatelessWidget {
             child: AnimatedContainer(
               duration: Ox.medium,
               curve: Ox.easeOut,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              padding: EdgeInsets.fromLTRB(icons?[e.key] != null ? 7 : 16, icons?[e.key] != null ? 6 : 9, 16, icons?[e.key] != null ? 6 : 9),
               decoration: BoxDecoration(
                 color: e.key == value ? Ox.blueCta : Ox.field,
                 borderRadius: BorderRadius.circular(99),
@@ -283,7 +297,16 @@ class ChoicePills extends StatelessWidget {
                 style: Ox.body(14,
                     weight: e.key == value ? FontWeight.w600 : FontWeight.w500,
                     color: e.key == value ? Colors.white : Ox.text),
-                child: Text(e.value),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icons?[e.key] != null) ...[
+                      SvgPicture.asset(icons![e.key]!, package: 'oryvex_shared', width: 24, height: 24),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(e.value),
+                  ],
+                ),
               ),
             ),
           ),
@@ -302,8 +325,10 @@ class ChoiceRow extends StatelessWidget {
     this.label,
     this.hint,
     this.segmented = false,
+    this.icons,
   });
 
+  final Map<String, String>? icons;
   final Map<String, String> options;
   final String value;
   final ValueChanged<String> onChanged;
@@ -318,7 +343,7 @@ class ChoiceRow extends StatelessWidget {
       hint: hint,
       child: segmented
           ? Segmented(options: options, value: value, onChanged: onChanged)
-          : ChoicePills(options: options, value: value, onChanged: onChanged),
+          : ChoicePills(options: options, value: value, onChanged: onChanged, icons: icons),
     );
   }
 }

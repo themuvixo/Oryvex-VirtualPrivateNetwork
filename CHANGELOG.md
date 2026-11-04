@@ -79,3 +79,7 @@
   rings while searching, ring fills with progress, closes with a shock ring on connect, then breathes.
 - Shared-axis page transitions between tabs (state kept), custom route transitions, staggered
   reveals, press feedback, keyboard shortcuts Ctrl+1/2/3. Respects "reduce motion".
+
+## Unreleased
+
+- Theme rebuild fix, flags for 76 Tor exit countries, Best exit node (--tor-exit-best), route icons, HTTP/2 default carrier, new app icon.

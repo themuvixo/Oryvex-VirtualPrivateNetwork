@@ -56,7 +56,7 @@ class HomePage extends StatelessWidget {
                         children: [
                           const OxMark(size: 28),
                           const SizedBox(width: 10),
-                          const Flexible(child: OxWordmark(size: 21)),
+                          Flexible(child: OxWordmark(size: 21)),
                           const Spacer(),
                           StatusPill(state: c.state, vpnUp: c.vpnUp),
                         ],
@@ -101,7 +101,7 @@ class HomePage extends StatelessWidget {
                   const SizedBox(height: 14),
                   Reveal(delay: const Duration(milliseconds: 220), child: _RouteAndMode(controller: c)),
                   const SizedBox(height: 18),
-                  const OxCredit(),
+                  OxCredit(),
                 ],
               ),
             ),
@@ -309,7 +309,7 @@ class StatusPill extends StatelessWidget {
       curve: Ox.easeInOut,
       padding: EdgeInsets.symmetric(horizontal: dense ? 10 : 12, vertical: dense ? 5 : 7),
       decoration: BoxDecoration(
-        color: on ? Ox.blue.withValues(alpha: 0.16) : Ox.tile,
+        color: on ? Ox.blueWash : Ox.tileHi,
         borderRadius: BorderRadius.circular(99),
       ),
       child: Row(
@@ -492,7 +492,7 @@ class _Bento extends StatelessWidget {
             )
           else
             _MetricTile(
-              icon: Icons.hub_outlined,
+              icon: Icons.hub_rounded,
               label: 'Gateway',
               value: c.edge ?? '—',
               mono: true,
@@ -535,7 +535,7 @@ class _MetricTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: Ox.blue),
+              Icon(icon, size: 16, color: Ox.link),
               const SizedBox(width: 6),
               Expanded(child: Text(label, maxLines: 1, style: Ox.body(14, color: Ox.secondary, weight: FontWeight.w500))),
             ],
@@ -586,6 +586,7 @@ class _RouteAndMode extends StatelessWidget {
           ...[
             ChoicePills(
               options: Choices.protocols,
+              icons: protocolIcons,
               value: s.protocol,
               onChanged: (v) => c.updateSettings((x) => x.protocol = v),
             ),

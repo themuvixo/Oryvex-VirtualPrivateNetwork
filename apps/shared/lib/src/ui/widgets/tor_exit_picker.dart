@@ -83,7 +83,14 @@ class TorExitPicker extends StatelessWidget {
               ? const SizedBox(width: double.infinity)
               : Padding(
                   padding: const EdgeInsets.only(top: 14),
-                  child: _Countries(controller: c, quickCount: quickCount),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _Countries(controller: c, quickCount: quickCount),
+                      const SizedBox(height: 14),
+                      _BestNode(controller: c),
+                    ],
+                  ),
                 ),
         ),
         const SizedBox(height: 12),
@@ -119,10 +126,10 @@ class _InUse extends StatelessWidget {
               key: ValueKey<String>(text),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: Ox.blue.withValues(alpha: 0.14),
+                color: Ox.blueWash,
                 borderRadius: BorderRadius.circular(99),
               ),
-              child: Text(text, style: Ox.body(13, weight: FontWeight.w600, color: Ox.blueSoft)),
+              child: Text(text, style: Ox.body(13, weight: FontWeight.w600, color: Ox.link)),
             ),
     );
   }
@@ -178,7 +185,34 @@ class _Countries extends StatelessWidget {
   }
 }
 
-/// A two-letter badge: flag emoji do not render on Windows, letters always do.
+/// A country's flag picture (assets/flags), on every platform: Windows draws no flag emoji.
+/// Codes without a picture fall back to the two-letter badge.
+class CountryFlag extends StatelessWidget {
+  const CountryFlag({super.key, required this.code, this.size = 34, this.selected = false});
+
+  final String code;
+  final double size;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!hasFlagAsset(code)) return CountryCodeBadge(code: code, selected: selected, size: size);
+    return SizedBox(
+      width: size * 1.34,
+      height: size,
+      child: Image.asset(
+        flagAsset(code),
+        package: 'oryvex_shared',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.medium,
+        semanticLabel: code.toUpperCase(),
+        errorBuilder: (context, error, stack) => CountryCodeBadge(code: code, selected: selected, size: size),
+      ),
+    );
+  }
+}
+
+/// A two-letter badge, for codes without a flag picture.
 class CountryCodeBadge extends StatelessWidget {
   const CountryCodeBadge({super.key, required this.code, this.selected = false, this.size = 34});
 
@@ -232,7 +266,7 @@ class _CountryTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            CountryCodeBadge(code: country.code, selected: selected),
+            CountryFlag(code: country.code, selected: selected),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -282,7 +316,7 @@ class _AllCountries extends StatelessWidget {
                 value: x.code,
                 child: Row(
                   children: [
-                    CountryCodeBadge(code: x.code, size: 26),
+                    CountryFlag(code: x.code, size: 24),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -300,6 +334,81 @@ class _AllCountries extends StatelessWidget {
             if (v != null) onChanged(v);
           },
         ),
+      ),
+    );
+  }
+}
+
+/// "Best exit node": measure several exits in the chosen country and keep the quickest
+/// circuit, with the country's strongest relays from the Tor directory below.
+class _BestNode extends StatelessWidget {
+  const _BestNode({required this.controller});
+
+  final CoreController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final s = c.settings;
+    final country = c.torExits.find(s.torExit);
+    final name = c.torExits.nameOf(s.torExit);
+    final top = country?.top ?? const <TorExitRelay>[];
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      decoration: BoxDecoration(
+        color: Ox.field,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: s.torExitBest ? Ox.blueCta.withValues(alpha: 0.55) : Ox.hairlineSoft),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.speed_rounded, size: 20, color: Ox.link),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Best exit node in $name', style: Ox.body(15, weight: FontWeight.w600)),
+                    Text(
+                      'Measures ${Choices.torExitBestProbes} exits there side by side and keeps the quickest circuit.',
+                      style: Ox.body(13, color: Ox.secondary),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(value: s.torExitBest, onChanged: (v) => c.updateSettings((x) => x.torExitBest = v)),
+            ],
+          ),
+          if (top.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text('Strongest exits in $name', style: Ox.body(13, weight: FontWeight.w600, color: Ox.tertiary)),
+            const SizedBox(height: 4),
+            for (var i = 0; i < top.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    SizedBox(width: 22, child: Text('${i + 1}', style: Ox.code(13, color: Ox.tertiary))),
+                    Expanded(
+                      child: Text(top[i].nickname,
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: Ox.body(14, weight: FontWeight.w500)),
+                    ),
+                    Text(top[i].shortFingerprint, style: Ox.code(12, color: Ox.tertiary)),
+                    const SizedBox(width: 10),
+                    Text(formatBandwidth(top[i].bandwidth), style: Ox.code(12, color: Ox.secondary)),
+                  ],
+                ),
+              ),
+          ] else
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('Relay names arrive with the live Tor directory after your first Tor connect.',
+                  style: Ox.body(13, color: Ox.tertiary)),
+            ),
+        ],
       ),
     );
   }

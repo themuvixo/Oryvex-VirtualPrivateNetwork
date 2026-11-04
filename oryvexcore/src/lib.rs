@@ -3441,11 +3441,14 @@ async fn select_masque_transport() {
     }
 
     let answer = prompt_line(
-        "\nMASQUE transport:\n  [1] HTTP/3 (QUIC)  (default; fastest handshake, best on healthy UDP networks)\n  [2] HTTP/2 (TCP)   (looks like ordinary HTTPS; use if UDP/QUIC is blocked or throttled)\nChoose [1-2] (default 1): ",
+        "\nMASQUE transport:\n  [1] HTTP/2 (TCP)   (default; looks like ordinary HTTPS, gets through where UDP/QUIC is blocked)\n  [2] HTTP/3 (QUIC)  (fastest handshake, best on healthy UDP networks)\nChoose [1-2] (default 1): ",
     )
     .await;
 
+    // HTTP/2 is the default carrier: anything but an explicit 2 rides TCP.
     if matches!(answer.as_deref(), Some("2")) {
+        std::env::set_var("ORYVEXCORE_MASQUE_HTTP2", "0");
+    } else {
         std::env::set_var("ORYVEXCORE_MASQUE_HTTP2", "1");
     }
 }

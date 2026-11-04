@@ -257,6 +257,9 @@ Tor:
                            onionoo through tor itself and kept in <tor-dir>
   --tor-exit-strict        with --tor-exit, fail instead of leaving from any
                            other country when none of those asked for answers
+  --tor-exit-best          with --tor-exit countries: measure 4 circuits through
+                           different exits in the country side by side and keep
+                           the quickest one, instead of the first tor builds
 
   --psiphon                carry psiphon inside the tunnel: oryvexcore -> warp ->
                            psiphon -> internet, served on --psiphon-bind
@@ -432,6 +435,7 @@ Environment variables:
   ORYVEXCORE_TOR_COUNTRY               ask bridgedb for this country, e.g. ir
   ORYVEXCORE_TOR_EXIT                  --tor-exit
   ORYVEXCORE_TOR_EXIT_STRICT           1 for --tor-exit-strict
+  ORYVEXCORE_TOR_EXIT_BEST             1 for --tor-exit-best
   ORYVEXCORE_TOR_EXIT_API              where the exit directory is asked for
                                    (an onionoo details url, fetched through tor)
   ORYVEXCORE_TOR_EXIT_REFRESH          1 to fetch the exit directory on every start
@@ -605,6 +609,7 @@ pub fn parse_args(args: Vec<String>) -> crate::error::Result<Parsed> {
             "--tor-dir" => set("ORYVEXCORE_TOR_DIR", next_value!()),
             "--tor-exit" => set("ORYVEXCORE_TOR_EXIT", next_value!()),
             "--tor-exit-strict" => set("ORYVEXCORE_TOR_EXIT_STRICT", "1"),
+            "--tor-exit-best" | "--tor-best-exit" => set("ORYVEXCORE_TOR_EXIT_BEST", "1"),
             "--psiphon" => set("ORYVEXCORE_PSIPHON", "chain"),
             "--psiphon-reverse" => set("ORYVEXCORE_PSIPHON", "reverse"),
             "--psiphon-only" => set("ORYVEXCORE_PSIPHON", "only"),

@@ -29,9 +29,14 @@ const REFRESH_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// How many countries `fastest` measures.
 pub const FASTEST_CANDIDATES: usize = 6;
+/// How many circuits `--tor-exit-best` measures side by side in the chosen country.
+pub const BEST_PROBES: usize = 4;
+/// How many of a country's strongest exit relays travel with the directory.
+const TOP_RELAYS: usize = 5;
 
-/// Countries that have hosted many Tor exits for years, best served first. Used before the
-/// first directory fetch, and to fill `fastest` when the directory is short.
+/// Every country that has hosted Tor exit relays in recent years, best served first. Used before
+/// the first directory fetch, so the apps can offer every exit location from the start, and to
+/// fill `fastest` when the directory is short. Same order as the apps' bundled list.
 const BUNDLED: &[(&str, &str)] = &[
     ("de", "Germany"),
     ("nl", "Netherlands"),
@@ -65,6 +70,50 @@ const BUNDLED: &[(&str, &str)] = &[
     ("au", "Australia"),
     ("br", "Brazil"),
     ("in", "India"),
+    ("za", "South Africa"),
+    ("tr", "Türkiye"),
+    ("rs", "Serbia"),
+    ("tw", "Taiwan"),
+    ("vn", "Vietnam"),
+    ("pe", "Peru"),
+    ("az", "Azerbaijan"),
+    ("be", "Belgium"),
+    ("ie", "Ireland"),
+    ("pt", "Portugal"),
+    ("gr", "Greece"),
+    ("sk", "Slovakia"),
+    ("si", "Slovenia"),
+    ("hr", "Croatia"),
+    ("il", "Israel"),
+    ("kr", "South Korea"),
+    ("nz", "New Zealand"),
+    ("ar", "Argentina"),
+    ("cl", "Chile"),
+    ("mx", "Mexico"),
+    ("cr", "Costa Rica"),
+    ("pa", "Panama"),
+    ("ru", "Russia"),
+    ("kz", "Kazakhstan"),
+    ("th", "Thailand"),
+    ("my", "Malaysia"),
+    ("id", "Indonesia"),
+    ("ph", "Philippines"),
+    ("ae", "United Arab Emirates"),
+    ("cy", "Cyprus"),
+    ("mt", "Malta"),
+    ("li", "Liechtenstein"),
+    ("sc", "Seychelles"),
+    ("bz", "Belize"),
+    ("gi", "Gibraltar"),
+    ("ge", "Georgia"),
+    ("am", "Armenia"),
+    ("al", "Albania"),
+    ("mk", "North Macedonia"),
+    ("ba", "Bosnia and Herzegovina"),
+    ("ec", "Ecuador"),
+    ("co", "Colombia"),
+    ("uy", "Uruguay"),
+    ("by", "Belarus"),
 ];
 
 /// What `--tor-exit` asks for.
@@ -124,6 +173,32 @@ pub fn choice() -> ExitChoice {
     parse_choice(&std::env::var("ORYVEXCORE_TOR_EXIT").unwrap_or_default())
 }
 
+/// `--tor-exit-best`: with countries asked for, measure [BEST_PROBES] circuits through exits in
+/// each and keep the quickest, instead of the first circuit tor builds there.
+pub fn best_node() -> bool {
+    matches!(
+        std::env::var("ORYVEXCORE_TOR_EXIT_BEST")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// One of a country's strongest exit relays, as the directory carries it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExitRelay {
+    /// The relay's nickname.
+    pub nick: String,
+    /// Its RSA fingerprint, 40 upper-case hex digits ("" when onionoo left it out).
+    #[serde(default)]
+    pub fp: String,
+    /// Advertised bandwidth, bytes per second.
+    #[serde(default)]
+    pub bw: u64,
+}
+
 /// One country in the exit directory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExitCountry {
@@ -138,6 +213,9 @@ pub struct ExitCountry {
     /// The share of exit traffic tor would send there by itself, 0..1.
     #[serde(default)]
     pub probability: f64,
+    /// Its strongest exit relays, best first. Empty for the bundled list.
+    #[serde(default)]
+    pub top: Vec<ExitRelay>,
 }
 
 /// The exit directory: every exit country, best served first.
@@ -163,6 +241,7 @@ impl Directory {
                     relays: 0,
                     bandwidth: 0,
                     probability: 0.0,
+                    top: Vec::new(),
                 })
                 .collect(),
         }
@@ -236,6 +315,10 @@ struct OnionooDetails {
 #[derive(Debug, Deserialize)]
 struct OnionooRelay {
     #[serde(default)]
+    nickname: Option<String>,
+    #[serde(default)]
+    fingerprint: Option<String>,
+    #[serde(default)]
     country: Option<String>,
     #[serde(default)]
     country_name: Option<String>,
@@ -279,10 +362,22 @@ pub fn summarize(body: &str) -> Option<Directory> {
             relays: 0,
             bandwidth: 0,
             probability: 0.0,
+            top: Vec::new(),
         });
+        let bandwidth = relay.advertised_bandwidth.unwrap_or(0);
         entry.relays += 1;
-        entry.bandwidth += relay.advertised_bandwidth.unwrap_or(0);
+        entry.bandwidth += bandwidth;
         entry.probability += relay.exit_probability.unwrap_or(0.0);
+        if let Some(nick) = relay.nickname.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
+            entry.top.push(ExitRelay {
+                nick,
+                fp: relay
+                    .fingerprint
+                    .map(|f| f.trim().to_uppercase())
+                    .unwrap_or_default(),
+                bw: bandwidth,
+            });
+        }
     }
 
     if by_country.is_empty() {
@@ -290,6 +385,12 @@ pub fn summarize(body: &str) -> Option<Directory> {
     }
 
     let mut countries: Vec<ExitCountry> = by_country.into_values().collect();
+    for country in &mut countries {
+        country
+            .top
+            .sort_by(|a, b| b.bw.cmp(&a.bw).then_with(|| a.nick.cmp(&b.nick)));
+        country.top.truncate(TOP_RELAYS);
+    }
     countries.sort_by(|a, b| {
         b.bandwidth
             .cmp(&a.bandwidth)
@@ -392,7 +493,7 @@ pub async fn fetch_through(tor_proxy: SocketAddr) -> Option<Directory> {
             ("flag", "Exit"),
             (
                 "fields",
-                "country,country_name,advertised_bandwidth,exit_probability,flags,running",
+                "nickname,fingerprint,country,country_name,advertised_bandwidth,exit_probability,flags,running",
             ),
         ])
         .send()
@@ -483,8 +584,8 @@ mod tests {
     #[test]
     fn onionoo_details_are_counted_per_country() {
         let body = r#"{"version":"8.0","relays":[
-            {"country":"de","country_name":"Germany","advertised_bandwidth":1000,"exit_probability":0.1,"flags":["Exit","Fast","Running"],"running":true},
-            {"country":"de","country_name":"Germany","advertised_bandwidth":3000,"exit_probability":0.2,"flags":["Exit","Running"],"running":true},
+            {"nickname":"slowde","fingerprint":"aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000","country":"de","country_name":"Germany","advertised_bandwidth":1000,"exit_probability":0.1,"flags":["Exit","Fast","Running"],"running":true},
+            {"nickname":"fastde","fingerprint":"BBBB1111BBBB1111BBBB1111BBBB1111BBBB1111","country":"de","country_name":"Germany","advertised_bandwidth":3000,"exit_probability":0.2,"flags":["Exit","Running"],"running":true},
             {"country":"nl","country_name":"Netherlands","advertised_bandwidth":2000,"flags":["Exit"],"running":true},
             {"country":"us","country_name":"United States","advertised_bandwidth":9000,"flags":["Exit","BadExit"],"running":true},
             {"country":"fr","country_name":"France","advertised_bandwidth":9000,"flags":["Guard"],"running":true},
@@ -499,6 +600,11 @@ mod tests {
         assert_eq!(dir.countries[0].bandwidth, 4000);
         assert_eq!(dir.countries[1].cc, "nl");
         assert_eq!(dir.total_relays(), 3);
+        // The strongest relay comes first, and a relay without a nickname is counted but not listed.
+        assert_eq!(dir.countries[0].top.len(), 2);
+        assert_eq!(dir.countries[0].top[0].nick, "fastde");
+        assert_eq!(dir.countries[0].top[1].fp, "AAAA0000AAAA0000AAAA0000AAAA0000AAAA0000");
+        assert!(dir.countries[1].top.is_empty());
     }
 
     #[test]
@@ -510,7 +616,7 @@ mod tests {
     #[test]
     fn the_bundled_list_is_made_of_country_codes() {
         let dir = Directory::bundled();
-        assert!(dir.countries.len() >= 20);
+        assert!(dir.countries.len() >= 60);
         for c in &dir.countries {
             assert!(is_country_code(&c.cc), "{}", c.cc);
             assert!(!c.name.is_empty());
@@ -524,9 +630,9 @@ mod tests {
             updated: now(),
             source: "onionoo".into(),
             countries: vec![
-                ExitCountry { cc: "nl".into(), name: "Netherlands".into(), relays: 50, bandwidth: 9, probability: 0.0 },
-                ExitCountry { cc: "zz".into(), name: "Tiny".into(), relays: 1, bandwidth: 8, probability: 0.0 },
-                ExitCountry { cc: "de".into(), name: "Germany".into(), relays: 40, bandwidth: 7, probability: 0.0 },
+                ExitCountry { cc: "nl".into(), name: "Netherlands".into(), relays: 50, bandwidth: 9, probability: 0.0, top: Vec::new() },
+                ExitCountry { cc: "zz".into(), name: "Tiny".into(), relays: 1, bandwidth: 8, probability: 0.0, top: Vec::new() },
+                ExitCountry { cc: "de".into(), name: "Germany".into(), relays: 40, bandwidth: 7, probability: 0.0, top: Vec::new() },
             ],
         };
         let picks = dir.fastest_candidates(4);
@@ -534,6 +640,13 @@ mod tests {
         assert_eq!(picks[1], "de");
         assert!(!picks.contains(&"zz".to_string()));
         assert_eq!(picks.len(), 4);
+    }
+
+    #[test]
+    fn a_cache_from_before_top_relays_still_reads() {
+        let old = r#"{"updated":1,"source":"onionoo","countries":[{"cc":"de","name":"Germany","relays":3,"bandwidth":9}]}"#;
+        let dir: Directory = serde_json::from_str(old).expect("old cache");
+        assert!(dir.countries[0].top.is_empty());
     }
 
     #[test]
