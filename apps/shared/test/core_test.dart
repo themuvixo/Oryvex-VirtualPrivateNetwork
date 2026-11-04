@@ -183,8 +183,8 @@ void main() {
     final light = buildOxTheme(dark: false);
     expect(light.brightness, Brightness.light);
     expect(Ox.darkMode, isFalse);
-    expect(Ox.canvas, const Color(0xFFF5F5F7));
-    expect(Ox.text, const Color(0xFF1D1D1F));
+    expect(Ox.canvas, const Color(0xFFF2F3F7));
+    expect(Ox.text, const Color(0xFF111318));
 
     final dark = buildOxTheme(dark: true);
     expect(dark.brightness, Brightness.dark);
