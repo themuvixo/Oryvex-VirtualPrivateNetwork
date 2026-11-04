@@ -72,15 +72,53 @@ jobs:
         run: cargo install cargo-ndk --locked
 
       - name: Build core
+        id: build_core
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: bash apps/android-src/tool/build_android_natives.sh core ${{ matrix.abi }}
 
-      - uses: actions/upload-artifact@v4
+      # GitHub artifact uploads can fail transiently with ECONNRESET. Retry with
+      # distinct names so a partially completed first attempt can't block a retry.
+      - name: Upload Android core artifact (attempt 1)
+        id: upload_core_artifact_1
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
         with:
-          name: native-android-core-${{ matrix.abi }}
+          name: native-android-core-${{ matrix.abi }}-attempt-1
           path: apps/android-src/android/app/src/main/jniLibs
           if-no-files-found: error
+
+      - name: Upload Android core artifact (attempt 2)
+        id: upload_core_artifact_2
+        if: ${{ steps.upload_core_artifact_1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-android-core-${{ matrix.abi }}-attempt-2
+          path: apps/android-src/android/app/src/main/jniLibs
+          if-no-files-found: error
+
+      - name: Upload Android core artifact (attempt 3)
+        id: upload_core_artifact_3
+        if: ${{ steps.upload_core_artifact_2.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-android-core-${{ matrix.abi }}-attempt-3
+          path: apps/android-src/android/app/src/main/jniLibs
+          if-no-files-found: error
+
+      - name: Verify Android core artifact upload
+        if: ${{ always() && steps.build_core.outcome == 'success' }}
+        env:
+          UPLOAD_1: ${{ steps.upload_core_artifact_1.outcome }}
+          UPLOAD_2: ${{ steps.upload_core_artifact_2.outcome }}
+          UPLOAD_3: ${{ steps.upload_core_artifact_3.outcome }}
+        run: |
+          if [[ "$UPLOAD_1" != "success" && "$UPLOAD_2" != "success" && "$UPLOAD_3" != "success" ]]; then
+            echo "::error::Android core artifact upload failed after three attempts."
+            exit 1
+          fi
 
   # ------------------------------------------------------------------
   # hev-socks5-tunnel (whole-device VPN mode) for every ABI, plus the
